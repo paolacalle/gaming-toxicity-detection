@@ -1,0 +1,67 @@
+{
+  "train_path": "/Users/paolacalle/Desktop/NYU/semesters/spring-2026/ML/hw/gaming-toxicity-detection/data/processed_data/wot/wot_train_ml.parquet",
+  "tune_path": "/Users/paolacalle/Desktop/NYU/semesters/spring-2026/ML/hw/gaming-toxicity-detection/data/processed_data/wot/wot_val_ml.parquet",
+  "test_path": "/Users/paolacalle/Desktop/NYU/semesters/spring-2026/ML/hw/gaming-toxicity-detection/data/processed_data/dota/dota_val_ml.parquet",
+  "normal_label": 0,
+  "threshold_quantile": 0.1,
+  "best_detector": "OneClassSVM",
+  "detector_results": [
+    {
+      "Detector": "OneClassSVM",
+      "Threshold": -0.052015,
+      "Tune Flag Rate": 0.1,
+      "Test Precision": 0.4543,
+      "Test Recall": 0.2677,
+      "Test F1": 0.3369,
+      "Test FPR": 0.1199,
+      "Test TPR": 0.2677
+    },
+    {
+      "Detector": "IsolationForest",
+      "Threshold": 0.198235,
+      "Tune Flag Rate": 0.0988,
+      "Test Precision": 0.2271,
+      "Test Recall": 0.0371,
+      "Test F1": 0.0638,
+      "Test FPR": 0.0471,
+      "Test TPR": 0.0371
+    },
+    {
+      "Detector": "SGDOneClassSVM",
+      "Threshold": 1e-06,
+      "Tune Flag Rate": 0.0,
+      "Test Precision": 0.0,
+      "Test Recall": 0.0,
+      "Test F1": 0.0,
+      "Test FPR": 0.0,
+      "Test TPR": 0.0
+    }
+  ],
+  "test_classification_report": {
+    "normal": {
+      "precision": 0.7631680867544539,
+      "recall": 0.8800803930326039,
+      "f1-score": 0.8174652561709189,
+      "support": 4478.0
+    },
+    "anomaly": {
+      "precision": 0.45426829268292684,
+      "recall": 0.26766467065868266,
+      "f1-score": 0.33685003767897514,
+      "support": 1670.0
+    },
+    "accuracy": 0.7137280416395576,
+    "macro avg": {
+      "precision": 0.6087181897186904,
+      "recall": 0.5738725318456432,
+      "f1-score": 0.5771576469249471,
+      "support": 6148.0
+    },
+    "weighted avg": {
+      "precision": 0.6792606931143351,
+      "recall": 0.7137280416395576,
+      "f1-score": 0.6869142778232374,
+      "support": 6148.0
+    }
+  }
+}
