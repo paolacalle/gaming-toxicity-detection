@@ -42,3 +42,13 @@ def test_load_combined_concatenates_both():
 def test_load_wot_invalid_split_raises():
     with pytest.raises(ValueError):
         load_wot('test')
+
+
+def test_load_dota_with_binary_scheme():
+    df = load_dota('train', scheme=DOTA_SCHEMES[2])
+    assert set(df['label'].unique()).issubset({0, 1})
+
+
+def test_load_dota_invalid_split_raises():
+    with pytest.raises(ValueError):
+        load_dota('test')
