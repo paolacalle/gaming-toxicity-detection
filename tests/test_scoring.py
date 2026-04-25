@@ -34,6 +34,8 @@ def test_cv_score_returns_required_keys():
                       cv=StratifiedKFold(n_splits=2, shuffle=True, random_state=0))
     assert 'cv_macro_f1' in result
     assert 'cv_std' in result
+    assert 'cv_recall_macro' in result
+    assert 'cv_precision_macro' in result
 
 
 def test_test_score_returns_required_keys():
@@ -43,6 +45,9 @@ def test_test_score_returns_required_keys():
     assert 'test_macro_f1' in result
     assert 'test_weighted_f1' in result
     assert 'per_class_recall' in result
+    assert 'test_precision_macro' in result
+    assert 'test_recall_macro' in result
+    assert 'test_auc' in result
     # per_class_recall must be a JSON string
     json.loads(result['per_class_recall'])
 
@@ -54,6 +59,9 @@ def test_ood_score_returns_required_keys():
     result = ood_score(pipe, pd.Series(_TEXTS), pd.Series(_LABELS))
     assert 'ood_macro_f1' in result
     assert 'ood_weighted_f1' in result
+    assert 'ood_precision_macro' in result
+    assert 'ood_recall_macro' in result
+    assert 'ood_auc' in result
 
 
 def test_append_registry_creates_file(tmp_path):
