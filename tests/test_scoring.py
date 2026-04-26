@@ -32,8 +32,9 @@ def test_cv_score_returns_required_keys():
     import pandas as pd
     result = cv_score(_make_pipe(), pd.Series(_TEXTS), pd.Series(_LABELS),
                       cv=StratifiedKFold(n_splits=2, shuffle=True, random_state=0))
+    assert 'cv_f2' in result
+    assert 'cv_f2_std' in result
     assert 'cv_macro_f1' in result
-    assert 'cv_std' in result
     assert 'cv_recall_macro' in result
     assert 'cv_precision_macro' in result
 
@@ -42,8 +43,8 @@ def test_test_score_returns_required_keys():
     import pandas as pd
     result = holdout_score(_make_pipe(), pd.Series(_TEXTS), pd.Series(_LABELS),
                            pd.Series(_TEXTS), pd.Series(_LABELS))
+    assert 'test_f2' in result
     assert 'test_macro_f1' in result
-    assert 'test_weighted_f1' in result
     assert 'per_class_recall' in result
     assert 'test_precision_macro' in result
     assert 'test_recall_macro' in result
@@ -57,8 +58,8 @@ def test_ood_score_returns_required_keys():
     pipe = _make_pipe()
     pipe.fit(pd.Series(_TEXTS), pd.Series(_LABELS))
     result = ood_score(pipe, pd.Series(_TEXTS), pd.Series(_LABELS))
+    assert 'ood_f2' in result
     assert 'ood_macro_f1' in result
-    assert 'ood_weighted_f1' in result
     assert 'ood_precision_macro' in result
     assert 'ood_recall_macro' in result
     assert 'ood_auc' in result
