@@ -3,19 +3,36 @@ import time
 from pathlib import Path
 import pandas as pd
 from sklearn.model_selection import cross_validate, StratifiedKFold
-from sklearn.metrics import recall_score, precision_score, fbeta_score, roc_auc_score, make_scorer
+from sklearn.metrics import recall_score, precision_score, f1_score, roc_auc_score, make_scorer
+from sklearn.base import clone
 
-# F2 scorer for Optuna: recall weighted 2x over precision.
-# Missing toxic (FN) is worse than false flag (FP) in moderation.
-F2_SCORER = make_scorer(fbeta_score, beta=2, average='binary', pos_label=1, zero_division=0)
+# scorer for Optuna / LogisticRegressionCV / cross_val_score - needs (estimator, X, y) signature
+def make_f1_scorer(n_classes: int):
+    if n_classes == 2:
+        return make_scorer(f1_score, average='binary', pos_label=1, zero_division=0)
+    return make_scorer(f1_score, average='macro', zero_division=0)
 
 
-def compute_f2(y_true, y_pred) -> float:
-    # binary problem: F2 on toxic class (pos_label=1)
-    # multiclass problem: F2 macro averaged across all classes
+def compute_f1(y_true, y_pred) -> float:
+    # binary: F1 on toxic class (pos_label=1)
+    # multiclass: F1 macro across all classes
     if len(set(y_true)) == 2:
-        return round(float(fbeta_score(y_true, y_pred, beta=2, average='binary', pos_label=1, zero_division=0)), 4)
-    return round(float(fbeta_score(y_true, y_pred, beta=2, average='macro', zero_division=0)), 4)
+        return round(float(f1_score(y_true, y_pred, average='binary', pos_label=1, zero_division=0)), 4)
+    return round(float(f1_score(y_true, y_pred, average='macro', zero_division=0)), 4)
+
+
+def _recall(y_true, y_pred) -> float:
+    # binary: recall on toxic class (pos_label=1); multiclass: macro
+    if len(set(y_true)) == 2:
+        return round(float(recall_score(y_true, y_pred, average='binary', pos_label=1, zero_division=0)), 4)
+    return round(float(recall_score(y_true, y_pred, average='macro', zero_division=0)), 4)
+
+
+def _precision(y_true, y_pred) -> float:
+    # binary: precision on toxic class (pos_label=1); multiclass: macro
+    if len(set(y_true)) == 2:
+        return round(float(precision_score(y_true, y_pred, average='binary', pos_label=1, zero_division=0)), 4)
+    return round(float(precision_score(y_true, y_pred, average='macro', zero_division=0)), 4)
 
 
 def compute_auc(pipe, X, y):
@@ -40,28 +57,25 @@ def compute_auc(pipe, X, y):
 
 
 def cv_score(pipe, X: pd.Series, y: pd.Series, cv=None) -> dict:
-    # cross-validation returning F2, recall macro, precision macro
+    # cross-validation returning F1, recall, precision
     if cv is None:
         cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=7524)
 
-    # build F2 scorer that matches the class count in y
-    if len(y.unique()) == 2:
-        f2_cv = make_scorer(fbeta_score, beta=2, average='binary', pos_label=1, zero_division=0)
-    else:
-        f2_cv = make_scorer(fbeta_score, beta=2, average='macro', zero_division=0)
-
+    # binary: score on toxic class (pos_label=1); multiclass: macro average
+    binary = len(y.unique()) == 2
     scoring = {
-        'f2': f2_cv,
-        'recall_macro': 'recall_macro',
-        'precision_macro': 'precision_macro',
+        'f1':        'f1'        if binary else 'f1_macro',
+        'recall':    'recall'    if binary else 'recall_macro',
+        'precision': 'precision' if binary else 'precision_macro',
     }
 
-    r = cross_validate(pipe, X, y, cv=cv, scoring=scoring, n_jobs=-1)
+    # clone so ImbPipeline clone bug doesn't corrupt caller's pipe state
+    r = cross_validate(clone(pipe), X, y, cv=cv, scoring=scoring, n_jobs=-1)
     return {
-        'cv_f2': round(float(r['test_f2'].mean()), 4),
-        'cv_f2_std': round(float(r['test_f2'].std()), 4),
-        'cv_recall_macro': round(float(r['test_recall_macro'].mean()), 4),
-        'cv_precision_macro': round(float(r['test_precision_macro'].mean()), 4),
+        'cv_f1':              round(float(r['test_f1'].mean()), 4),
+        'cv_f1_std':          round(float(r['test_f1'].std()), 4),
+        'cv_recall':    round(float(r['test_recall'].mean()), 4),
+        'cv_precision': round(float(r['test_precision'].mean()), 4),
     }
 
 
@@ -76,11 +90,11 @@ def holdout_score(pipe, X_train: pd.Series, y_train: pd.Series,
     per_class = recall_score(y_test, y_pred, labels=classes, average=None, zero_division=0)
 
     return {
-        'test_f2': compute_f2(y_test, y_pred),
-        'test_recall_macro': round(float(recall_score(y_test, y_pred, average='macro', zero_division=0)), 4),
-        'test_precision_macro': round(float(precision_score(y_test, y_pred, average='macro', zero_division=0)), 4),
-        'test_auc': compute_auc(pipe, X_test, y_test),
-        'per_class_recall': json.dumps({str(c): round(float(r), 4) for c, r in zip(classes, per_class)}),
+        'test_f1':           compute_f1(y_test, y_pred),
+        'test_recall':       _recall(y_test, y_pred),
+        'test_precision':    _precision(y_test, y_pred),
+        'test_auc':          compute_auc(pipe, X_test, y_test),
+        'per_class_recall':  json.dumps({str(c): round(float(r), 4) for c, r in zip(classes, per_class)}),
     }
 
 
@@ -88,10 +102,10 @@ def ood_score(fitted_pipe, X_ood: pd.Series, y_ood: pd.Series) -> dict:
     # evaluate pre-fitted pipe on out-of-domain data
     y_pred = fitted_pipe.predict(X_ood)
     return {
-        'ood_f2': compute_f2(y_ood, y_pred),
-        'ood_recall_macro': round(float(recall_score(y_ood, y_pred, average='macro', zero_division=0)), 4),
-        'ood_precision_macro': round(float(precision_score(y_ood, y_pred, average='macro', zero_division=0)), 4),
-        'ood_auc': compute_auc(fitted_pipe, X_ood, y_ood),
+        'ood_f1':              compute_f1(y_ood, y_pred),
+        'ood_recall':    _recall(y_ood, y_pred),
+        'ood_precision': _precision(y_ood, y_pred),
+        'ood_auc':             compute_auc(fitted_pipe, X_ood, y_ood),
     }
 
 
