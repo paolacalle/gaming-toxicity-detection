@@ -1,0 +1,60 @@
+{
+  "method": "regular",
+  "inputs": [
+    "data/processed_data/dota/dota.parquet",
+    "data/processed_data/wot/wot.parquet"
+  ],
+  "label_col": "label",
+  "normal_label": 0,
+  "val_size": 0.1,
+  "test_size": 0.1,
+  "seed": 7524,
+  "stratify_source": true,
+  "splits": {
+    "train": {
+      "rows": 68159,
+      "label_counts": {
+        "0": 51114,
+        "1": 8808,
+        "2": 5585,
+        "3": 2328,
+        "4": 295,
+        "5": 29
+      },
+      "source_counts": {
+        "dota": 28778,
+        "wot": 39381
+      }
+    },
+    "val": {
+      "rows": 8520,
+      "label_counts": {
+        "0": 6375,
+        "1": 1078,
+        "2": 685,
+        "3": 331,
+        "4": 49,
+        "5": 2
+      },
+      "source_counts": {
+        "dota": 3538,
+        "wot": 4982
+      }
+    },
+    "test": {
+      "rows": 8520,
+      "label_counts": {
+        "0": 6350,
+        "1": 1140,
+        "2": 716,
+        "3": 277,
+        "4": 36,
+        "5": 1
+      },
+      "source_counts": {
+        "dota": 3497,
+        "wot": 5023
+      }
+    }
+  }
+}
