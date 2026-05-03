@@ -1,37 +1,92 @@
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.linear_model import LogisticRegression
-from sklearn.naive_bayes import MultinomialNB
-from sklearn.svm import LinearSVC
-from sklearn.pipeline import FeatureUnion
-from sklearn.base import clone
-from imblearn.pipeline import Pipeline as ImbPipeline
-from imblearn.over_sampling import RandomOverSampler
+from __future__ import annotations
 
-# word + char TF-IDF union — char captures obfuscations and multilingual toxicity
-DEFAULT_TFIDF = FeatureUnion([
-    ('word', TfidfVectorizer(ngram_range=(1, 2), min_df=1, max_df=0.95, sublinear_tf=True, norm='l2')),
-    ('char', TfidfVectorizer(analyzer='char_wb', ngram_range=(3, 5), min_df=1, max_df=0.95, sublinear_tf=True, norm='l2')),
-])
+from typing import Any
+
+from imblearn.over_sampling import RandomOverSampler
+from imblearn.pipeline import Pipeline as ImbPipeline
+from sklearn.base import BaseEstimator, clone
+
+from src.models.features import build_default_tfidf
+from src.models.registry import build_model, get_model_class, list_models
+from src.models.supervised import SupervisedTextModel
+
 
 DEFAULT_SEED = 7524
+DEFAULT_TFIDF = build_default_tfidf()
+
+MODEL_ALIASES = {
+    "Logistic Regression": "logistic_regression",
+    "Naive Bayes": "naive_bayes",
+    "LinearSVC": "linear_svc",
+    "XGBoost": "xgboost",
+}
+
+DISPLAY_NAMES = {
+    "logistic_regression": "Logistic Regression",
+    "naive_bayes": "Naive Bayes",
+    "linear_svc": "LinearSVC",
+    "xgboost": "XGBoost",
+}
 
 
 def default_oversampler(seed: int = DEFAULT_SEED) -> RandomOverSampler:
     return RandomOverSampler(random_state=seed)
 
 
-def build_pipe(clf, oversampler=None, tfidf=None) -> ImbPipeline:
-    # clone tfidf so each pipe owns independent state — prevents shared vocab corruption
-    steps = [('tfidf', clone(tfidf if tfidf is not None else DEFAULT_TFIDF))]
+def build_pipe(clf: BaseEstimator, oversampler=None, tfidf=None) -> ImbPipeline:
+    steps = [("tfidf", clone(tfidf if tfidf is not None else DEFAULT_TFIDF))]
     if oversampler is not None:
-        steps.append(('oversample', oversampler))
-    steps.append(('clf', clf))
+        steps.append(("oversample", oversampler))
+    steps.append(("clf", clf))
     return ImbPipeline(steps)
 
 
-def default_classifiers(seed: int = DEFAULT_SEED) -> dict:
+def normalize_model_name(name: str) -> str:
+    return MODEL_ALIASES.get(name, name)
+
+
+def build_registered_model(
+    model_name: str,
+    config_name: str = "default",
+    seed: int = DEFAULT_SEED,
+    **overrides: Any,
+) -> Any:
+    return build_model(
+        normalize_model_name(model_name),
+        config_name=config_name,
+        seed=seed,
+        **overrides,
+    ).build()
+
+
+def default_classifiers(seed: int = DEFAULT_SEED) -> dict[str, BaseEstimator]:
+    classifiers: dict[str, BaseEstimator] = {}
+    for model_name in list_models("supervised"):
+        model_class = get_model_class(model_name)
+        if not issubclass(model_class, SupervisedTextModel):
+            continue
+        model = build_model(model_name, seed=seed)
+        classifiers[DISPLAY_NAMES.get(model_name, model_name)] = model.build_classifier()
+    return classifiers
+
+
+def registered_pipelines(
+    model_names: list[str] | None = None,
+    config_name: str = "default",
+    seed: int = DEFAULT_SEED,
+    oversample: bool = False,
+) -> dict[str, Any]:
+    names = model_names or [
+        name
+        for name in list_models("supervised")
+        if issubclass(get_model_class(name), SupervisedTextModel)
+    ]
     return {
-        'Logistic Regression': LogisticRegression(C=1.0, max_iter=1000, random_state=seed, n_jobs=1),
-        'Naive Bayes': MultinomialNB(),
-        'LinearSVC': LinearSVC(C=1.0, max_iter=2000, tol=1e-3, random_state=seed),
+        DISPLAY_NAMES.get(normalize_model_name(name), normalize_model_name(name)): build_registered_model(
+            name,
+            config_name=config_name,
+            seed=seed,
+            oversample=oversample,
+        )
+        for name in names
     }

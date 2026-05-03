@@ -324,6 +324,15 @@ STEP_REGISTRY = {
     "svc_check":   step_svc_check,
 }
 
+# Runner that executes steps in sequence and accumulates results
+# general-purpose, not used in current CLI but can be called from other scripts if needed
+def run_steps(preset, steps, df, args):
+    accumulator = None
+    for sname in steps:
+        df, accumulator = STEP_REGISTRY[sname](df, args, preset, accumulator, step_name=sname)
+        yield df, accumulator
+    return df, accumulator
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------

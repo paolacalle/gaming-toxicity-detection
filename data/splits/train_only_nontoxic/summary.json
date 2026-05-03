@@ -8,6 +8,7 @@
   "normal_label": 0,
   "val_size": 0.1,
   "test_size": 0.1,
+  "k_folds": 5,
   "seed": 7524,
   "stratify_source": true,
   "splits": {
@@ -49,6 +50,143 @@
       "source_counts": {
         "dota": 7593,
         "wot": 9471
+      }
+    }
+  },
+  "folds": {
+    "fold_1": {
+      "train": {
+        "rows": 45964,
+        "label_counts": {
+          "0": 45964
+        },
+        "source_counts": {
+          "dota": 18564,
+          "wot": 27400
+        }
+      },
+      "val": {
+        "rows": 13627,
+        "label_counts": {
+          "0": 11491,
+          "1": 1103,
+          "2": 699,
+          "3": 293,
+          "4": 38,
+          "5": 3
+        },
+        "source_counts": {
+          "dota": 5644,
+          "wot": 7983
+        }
+      }
+    },
+    "fold_2": {
+      "train": {
+        "rows": 45964,
+        "label_counts": {
+          "0": 45964
+        },
+        "source_counts": {
+          "dota": 18564,
+          "wot": 27400
+        }
+      },
+      "val": {
+        "rows": 13627,
+        "label_counts": {
+          "0": 11491,
+          "1": 1103,
+          "2": 699,
+          "3": 293,
+          "4": 38,
+          "5": 3
+        },
+        "source_counts": {
+          "dota": 5644,
+          "wot": 7983
+        }
+      }
+    },
+    "fold_3": {
+      "train": {
+        "rows": 45964,
+        "label_counts": {
+          "0": 45964
+        },
+        "source_counts": {
+          "dota": 18564,
+          "wot": 27400
+        }
+      },
+      "val": {
+        "rows": 13627,
+        "label_counts": {
+          "0": 11491,
+          "1": 1103,
+          "2": 699,
+          "3": 293,
+          "4": 38,
+          "5": 3
+        },
+        "source_counts": {
+          "dota": 5644,
+          "wot": 7983
+        }
+      }
+    },
+    "fold_4": {
+      "train": {
+        "rows": 45964,
+        "label_counts": {
+          "0": 45964
+        },
+        "source_counts": {
+          "dota": 18564,
+          "wot": 27400
+        }
+      },
+      "val": {
+        "rows": 13627,
+        "label_counts": {
+          "0": 11491,
+          "1": 1102,
+          "2": 698,
+          "3": 295,
+          "4": 38,
+          "5": 3
+        },
+        "source_counts": {
+          "dota": 5643,
+          "wot": 7984
+        }
+      }
+    },
+    "fold_5": {
+      "train": {
+        "rows": 45964,
+        "label_counts": {
+          "0": 45964
+        },
+        "source_counts": {
+          "dota": 18564,
+          "wot": 27400
+        }
+      },
+      "val": {
+        "rows": 13627,
+        "label_counts": {
+          "0": 11491,
+          "1": 1102,
+          "2": 698,
+          "3": 294,
+          "4": 38,
+          "5": 4
+        },
+        "source_counts": {
+          "dota": 5645,
+          "wot": 7982
+        }
       }
     }
   }

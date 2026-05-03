@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Literal
 
 import pandas as pd
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import KFold, StratifiedKFold, train_test_split
 
 
 SplitMethod = Literal[
@@ -34,6 +34,7 @@ class SplitConfig:
     normal_label: int
     val_size: float
     test_size: float
+    k_folds: int
     seed: int
     stratify_source: bool
 
@@ -67,6 +68,15 @@ def parse_args() -> SplitConfig:
     parser.add_argument("--normal-label", type=int, default=0)
     parser.add_argument("--val-size", type=float, default=0.10)
     parser.add_argument("--test-size", type=float, default=0.10)
+    parser.add_argument(
+        "--k-folds",
+        type=int,
+        default=0,
+        help=(
+            "If greater than 1, also write folds/fold_*/train.parquet and val.parquet "
+            "inside each split output directory. Folds are created from train + val, leaving test held out."
+        ),
+    )
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     parser.add_argument(
         "--stratify-source",
@@ -82,6 +92,8 @@ def parse_args() -> SplitConfig:
         raise ValueError("--test-size must be between 0 and 1.")
     if args.val_size + args.test_size >= 1.0:
         raise ValueError("--val-size + --test-size must be less than 1.")
+    if args.k_folds == 1 or args.k_folds < 0:
+        raise ValueError("--k-folds must be 0 to disable folds, or an integer greater than 1.")
 
     inputs = args.inputs if args.inputs is not None else discover_default_inputs(DEFAULT_INPUT_ROOT)
     if not inputs:
@@ -95,6 +107,7 @@ def parse_args() -> SplitConfig:
         normal_label=args.normal_label,
         val_size=args.val_size,
         test_size=args.test_size,
+        k_folds=args.k_folds,
         seed=args.seed,
         stratify_source=args.stratify_source,
     )
@@ -239,6 +252,89 @@ def reset_splits(splits: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
     return {name: split.reset_index(drop=True) for name, split in splits.items()}
 
 
+def make_k_fold_splits(method: str, splits: dict[str, pd.DataFrame], config: SplitConfig) -> list[dict[str, pd.DataFrame]]:
+    if config.k_folds <= 1:
+        return []
+
+    cv_source = pd.concat([splits["train"], splits["val"]], ignore_index=True)
+    if len(cv_source) < config.k_folds:
+        raise ValueError(f"Cannot create {config.k_folds} folds from only {len(cv_source)} rows.")
+
+    if method == "regular":
+        return make_regular_folds(cv_source, config)
+    if method == "stratified":
+        return make_stratified_folds(cv_source, config)
+    if method == "train_only_nontoxic":
+        return make_train_only_nontoxic_folds(cv_source, config)
+    raise ValueError(f"Cannot create folds for unknown method: {method}")
+
+
+def make_regular_folds(df: pd.DataFrame, config: SplitConfig) -> list[dict[str, pd.DataFrame]]:
+    splitter = KFold(n_splits=config.k_folds, shuffle=True, random_state=config.seed)
+    folds = []
+    for train_idx, val_idx in splitter.split(df):
+        folds.append(reset_splits({"train": df.iloc[train_idx], "val": df.iloc[val_idx]}))
+    return folds
+
+
+def make_stratified_folds(df: pd.DataFrame, config: SplitConfig) -> list[dict[str, pd.DataFrame]]:
+    key = stratify_key(df, config)
+    if key.value_counts().min() < config.k_folds:
+        print(
+            f"Warning: at least one stratification group has fewer than {config.k_folds} rows; "
+            "falling back to regular KFold for stratified folds."
+        )
+        return make_regular_folds(df, config)
+
+    splitter = StratifiedKFold(n_splits=config.k_folds, shuffle=True, random_state=config.seed)
+    folds = []
+    for train_idx, val_idx in splitter.split(df, key):
+        folds.append(reset_splits({"train": df.iloc[train_idx], "val": df.iloc[val_idx]}))
+    return folds
+
+
+def make_train_only_nontoxic_folds(df: pd.DataFrame, config: SplitConfig) -> list[dict[str, pd.DataFrame]]:
+    normal = df.loc[df[config.label_col] == config.normal_label]
+    non_normal = df.loc[df[config.label_col] != config.normal_label]
+
+    if len(normal) < config.k_folds:
+        raise ValueError(
+            f"Cannot create {config.k_folds} train-only-nontoxic folds from only {len(normal)} normal rows."
+        )
+
+    normal_key = normal["source_dataset"] if config.stratify_source else None
+    normal_fold_indices = make_fold_indices(normal, config, normal_key)
+
+    non_normal_fold_indices: list[tuple[list[int], list[int]]]
+    if len(non_normal) >= config.k_folds:
+        anomaly_key = stratify_key(non_normal, config)
+        non_normal_fold_indices = make_fold_indices(non_normal, config, anomaly_key)
+    else:
+        non_normal_fold_indices = [([], list(range(len(non_normal)))) for _ in range(config.k_folds)]
+
+    folds = []
+    for fold_id, (normal_train_idx, normal_val_idx) in enumerate(normal_fold_indices):
+        _, anomaly_val_idx = non_normal_fold_indices[fold_id]
+        train = normal.iloc[normal_train_idx]
+        val = pd.concat([normal.iloc[normal_val_idx], non_normal.iloc[anomaly_val_idx]], ignore_index=True)
+        val = val.sample(frac=1.0, random_state=config.seed + fold_id)
+        folds.append(reset_splits({"train": train, "val": val}))
+    return folds
+
+
+def make_fold_indices(
+    df: pd.DataFrame,
+    config: SplitConfig,
+    key: pd.Series | None,
+) -> list[tuple[list[int], list[int]]]:
+    if key is not None and key.value_counts().min() >= config.k_folds:
+        splitter = StratifiedKFold(n_splits=config.k_folds, shuffle=True, random_state=config.seed)
+        return [(train_idx.tolist(), val_idx.tolist()) for train_idx, val_idx in splitter.split(df, key)]
+
+    splitter = KFold(n_splits=config.k_folds, shuffle=True, random_state=config.seed)
+    return [(train_idx.tolist(), val_idx.tolist()) for train_idx, val_idx in splitter.split(df)]
+
+
 def summarize_split(df: pd.DataFrame, config: SplitConfig) -> dict[str, object]:
     return {
         "rows": int(len(df)),
@@ -262,14 +358,25 @@ def write_splits(method: str, splits: dict[str, pd.DataFrame], config: SplitConf
         "normal_label": config.normal_label,
         "val_size": config.val_size,
         "test_size": config.test_size,
+        "k_folds": config.k_folds,
         "seed": config.seed,
         "stratify_source": config.stratify_source,
         "splits": {},
+        "folds": {},
     }
 
     for split_name, split_df in splits.items():
         split_df.to_parquet(output_dir / f"{split_name}.parquet", index=False)
         summary["splits"][split_name] = summarize_split(split_df, config)
+
+    folds = make_k_fold_splits(method, splits, config)
+    for fold_index, fold in enumerate(folds, start=1):
+        fold_dir = output_dir / "folds" / f"fold_{fold_index}"
+        fold_dir.mkdir(parents=True, exist_ok=True)
+        summary["folds"][f"fold_{fold_index}"] = {}
+        for split_name, split_df in fold.items():
+            split_df.to_parquet(fold_dir / f"{split_name}.parquet", index=False)
+            summary["folds"][f"fold_{fold_index}"][split_name] = summarize_split(split_df, config)
 
     with (output_dir / "summary.json").open("w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2)
@@ -278,12 +385,11 @@ def write_splits(method: str, splits: dict[str, pd.DataFrame], config: SplitConf
     for split_name, split_df in splits.items():
         counts = split_df[config.label_col].value_counts().sort_index().to_dict()
         print(f"  {split_name:<5} rows={len(split_df):>6} labels={counts}")
+    if folds:
+        print(f"  folds wrote {len(folds)} validation folds from train + val")
 
 
-def main() -> None:
-    config = parse_args()
-    df = load_inputs(config.inputs, config.label_col, config.seed)
-
+def runner(df: pd.DataFrame, config: SplitConfig) -> None:
     methods = resolve_methods(config.method)
     for method in methods:
         if method == "regular":
@@ -292,9 +398,16 @@ def main() -> None:
             splits = split_stratified(df, config)
         elif method == "train_only_nontoxic":
             splits = split_train_only_nontoxic(df, config)
+        elif method == "normal_train_mixed_eval":
+            splits = split_normal_train_mixed_eval(df, config)
         else:
             raise ValueError(f"Unknown method: {method}")
         write_splits(method, splits, config)
+
+def main() -> None:
+    config = parse_args()
+    df = load_inputs(config.inputs, config.label_col, config.seed)
+    runner(df, config)
 
 
 def resolve_methods(method: SplitMethod) -> list[str]:
