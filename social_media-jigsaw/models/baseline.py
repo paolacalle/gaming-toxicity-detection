@@ -24,6 +24,7 @@ Usage
 """
 
 import argparse
+from pathlib import Path
 import pandas as pd
 import numpy as np
 import scipy.sparse as sp
@@ -75,6 +76,8 @@ TFIDF_CHAR_PARAMS = dict(
 
 RANDOM_STATE = 42
 
+DATA_DIR = Path(__file__).resolve().parent.parent / 'data'
+
 
 # ---------------------------------------------------------------------------
 # Length feature extractor
@@ -102,16 +105,12 @@ class LengthFeatureExtractor(BaseEstimator, TransformerMixin):
 # ---------------------------------------------------------------------------
 def load_data() -> tuple[pd.DataFrame, pd.DataFrame]:
     print('Loading data...')
-    train = pd.read_csv('../data/train.csv')
-    test  = pd.read_csv('../data/test.csv')
-    test_labels = pd.read_csv('../data/test_labels.csv')
-
-    # Rows with label == -1 were withheld from scoring in the competition
-    evaluable = test_labels[test_labels['toxic'] != -1].copy()
-    eval_df = evaluable.merge(test[['id', 'comment_text']], on='id')
+    train   = pd.read_csv(DATA_DIR / 'train_cleaned.csv')
+    # test_labels_cleaned.csv already contains comment_text and has -1 rows removed
+    eval_df = pd.read_csv(DATA_DIR / 'test_labels_cleaned.csv')
 
     print(f'  Train : {len(train):,} rows')
-    print(f'  Eval  : {len(eval_df):,} / {len(test_labels):,} test rows (filtered -1 labels)')
+    print(f'  Eval  : {len(eval_df):,} rows')
     return train, eval_df
 
 
