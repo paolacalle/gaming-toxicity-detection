@@ -55,7 +55,9 @@ STOPWORDS = ENGLISH_STOP_WORDS.union(EXTRA)
 
 
 def tokenize(text):
-    tokens = _tok.tokenize(str(text))
+    text = re.sub(r'(\w)\*+(\w)', r'\1\2', str(text))  # f**k → fk, before tokenizing
+    # tokenizization using TweetTokenizer, which is designed for social media text and handles emojis, punctuation, etc.
+    tokens = _tok.tokenize(text)
     # preserve ALLCAPS for expressive intensity (NOOB, WTF), lowercase rest
     # WORD
     tokens = [w + "_CAPS" if w.isupper() and len(w) > 1 else w.lower() for w in tokens]
