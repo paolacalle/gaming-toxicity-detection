@@ -1,9 +1,13 @@
+cleanlab
+imbalanced-learn
 joblib
+lingua-language-detector
 matplotlib
+nltk
 numpy
 optuna
 pandas
 pyarrow
 scikit-learn
 seaborn
-imbalanced-learn
+xgboost
