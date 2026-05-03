@@ -7,3 +7,6 @@ pyarrow
 scikit-learn
 seaborn
 imbalanced-learn
+cleanlab
+lingua-language-detector
+nltk
