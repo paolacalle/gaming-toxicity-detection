@@ -17,7 +17,7 @@ def main() -> None:
         "--model-task",
         "supervised",
         "--models",
-        "all",
+        "Naive Bayes","Logistic Regression", "LinearSVC",
         "--model-configs",
         "all",
     ]

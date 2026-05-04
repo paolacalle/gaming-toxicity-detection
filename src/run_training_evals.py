@@ -20,7 +20,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.models import build_model, get_model_config, list_model_configs, list_models
+from src.models import build_model, get_model_class, get_model_config, list_model_configs, list_models
 from src.models.supervised import SupervisedTextModel
 
 warnings.filterwarnings("ignore")
@@ -289,7 +289,7 @@ def build_model_runs(config: EvalConfig, task_type: str) -> list[ModelRun]:
     for model_name in requested:
         if model_name not in list_models(task_type):
             continue
-        model_class = build_model(model_name).__class__
+        model_class = get_model_class(model_name)
         if task_type == "supervised" and not issubclass(model_class, SupervisedTextModel):
             continue
         for config_name in selected_config_names(model_name, config):
