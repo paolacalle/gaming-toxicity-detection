@@ -11,21 +11,29 @@ _DOTA_FILES = {'train': 'dota_train_ml.parquet', 'val': 'dota_val_ml.parquet'}
 
 
 def load_wot(split: str) -> pd.DataFrame:
-    """Load WoT split. Returns raw labels (0-5)."""
+    """Load WoT ML split (train/val). Returns raw labels (0-5)."""
     if split not in _WOT_FILES:
         raise ValueError(f"split must be 'train' or 'val', got '{split}'")
     return pd.read_parquet(DATA_DIR_WOT / _WOT_FILES[split])
 
 
 def load_dota(split: str) -> pd.DataFrame:
-    """Load Dota split. Returns raw labels (0-3)."""
+    """Load Dota ML split (train/val). Returns raw labels (0-3)."""
     if split not in _DOTA_FILES:
         raise ValueError(f"split must be 'train' or 'val', got '{split}'")
     return pd.read_parquet(DATA_DIR_DOTA / _DOTA_FILES[split])
 
 
+def load_wot_clean() -> pd.DataFrame:
+    """Load full cleaned WoT dataset (message + label)."""
+    return pd.read_parquet(DATA_DIR_WOT / 'wot.parquet')
+
+
+def load_dota_clean() -> pd.DataFrame:
+    """Load full cleaned Dota dataset (message + label)."""
+    return pd.read_parquet(DATA_DIR_DOTA / 'dota.parquet')
+
+
 def load_combined(split: str) -> pd.DataFrame:
-    """Concatenate WoT + Dota splits with raw labels."""
-    wot  = load_wot(split)
-    dota = load_dota(split)
-    return pd.concat([wot, dota], ignore_index=True)
+    """Concatenate WoT + Dota ML splits with raw labels."""
+    return pd.concat([load_wot(split), load_dota(split)], ignore_index=True)

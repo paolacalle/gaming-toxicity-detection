@@ -19,15 +19,10 @@ EXTRA = {
     "just", "like", "time", "come", "win", "need",
     "xd", "guys", "lol", "omg", "thx", "rng",
     "play", "game", "tank", "spot",
-    "today", "people", "kids", "nice", "sry",
+    "today", "nice", "sry",
     "yes", "gl", "try", "let", "stay", "got", "left", "line",
-    "elc", "ebr", "wg", "wot", "tier", "doing", "loose",
-
-    # Dota-specific neutral
-    "ggwp", "mmr", "ff", "dc", "w8", "rc", "hf",
-    "reconnecting", "reconnect", "lag", "end",
-    "haha", "rofl", "ty", "thanks", "said", "min", "sec",
-    "wr", "team", "afk", "wait", "pro", "wow", "good",
+    "elc", "ebr", "wg", "wot", "tier", "doing", "loose", "team", 
+    "help", "afk", "lost", "dead", "commend", "pause",
 
     # Dota hero names — zero toxicity signal
     "abaddon", "alchemist", "axe", "bane", "batrider", "beastmaster",
