@@ -210,4 +210,4 @@ __marimo__/
 .claude/
 
 # Trained models
-models/
+# models/
