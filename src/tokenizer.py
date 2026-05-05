@@ -67,5 +67,5 @@ def tokenize(text):
     # WORD
     tokens = [w + "_CAPS" if w.isupper() and len(w) > 1 else w.lower() for w in tokens]
     tokens = [w for w in tokens if w not in STOPWORDS]
-    tokens = [w for w in tokens if re.search(r"\w", w)]
+    tokens = [w for w in tokens if re.search(r"\w", w)] 
     return tokens
