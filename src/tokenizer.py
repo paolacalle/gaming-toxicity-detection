@@ -18,11 +18,21 @@ EXTRA = {
     # cross-class neutral bleed
     "just", "like", "time", "come", "win", "need",
     "xd", "guys", "lol", "omg", "thx", "rng",
-    "play", "game", "tank", "spot",
+    "play", "game", "tank", "spot", "map",
     "today", "nice", "sry",
-    "yes", "gl", "try", "let", "stay", "got", "left", "line",
-    "elc", "ebr", "wg", "wot", "tier", "doing", "loose", "team", 
-    "help", "afk", "lost", "dead", "commend", "pause",
+    "yes", "try", "let", "stay", "got", "left", "line",
+    "elc", "ebr", "wg", "wot", "tier", "doing", "loose", "team",
+    "help", "afk", "lost", "dead", "commend", "pause", "gg", "gl",
+    "ggwp", "wp", "damn", "wait", "WAIT", "waited", "waiting", "hf", 
+    "ty", "thanks", "haha", "rofl", "wow", "w8", "mmr", "ff", "dc", 
+    "lag", "reconnect", "reconnecting", "unpause", "commended",
+
+    # WoT vehicle names — zero toxicity signal
+    "cobra", "indien", "tiger", "panther", "leopard", "leo", "maus", "lowe",
+    "centurion", "cent", "conqueror", "chieftain", "caernarvon", "badger", "manticore",
+    "kranvagn", "strv", "udes", "defender", "progetto", "prog", "bourrasque", "lorraine",
+    "grille", "bat", "batchat", "sheridan", "patton", "rhm",
+    "is3", "is7", "is4", "e100", "t62", "t54", "t34", "kv2", "kv1", "tiger",
 
     # Dota hero names — zero toxicity signal
     "abaddon", "alchemist", "axe", "bane", "batrider", "beastmaster",
@@ -36,7 +46,7 @@ EXTRA = {
     "razor", "riki", "rubick", "silencer", "slark", "slardar", "snapfire",
     "sniper", "spectre", "sven", "techies", "tidehunter", "timbersaw",
     "tinker", "tiny", "tusk", "underlord", "undying", "ursa", "viper",
-    "visage", "warlock", "weaver", "zeus",
+    "visage", "warlock", "weaver", "zeus", "kez", "largo"
 
     # hero abbreviations
     "sf", "qop", "ta", "am", "es", "pa", "pl", "wk", "dk",

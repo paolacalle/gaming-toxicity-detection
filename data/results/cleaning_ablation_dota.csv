@@ -1,0 +1,8 @@
+step,dataset,rows,f1_macro,f1_weighted,recall_macro,precision_macro,f1_macro_delta,recall_delta,precision_delta
+baseline,DOTA,28709,0.7204,0.851,0.7544,0.7013,0.0,0.0,0.0
+non_latin_drop,DOTA,28692,0.7225,0.8518,0.7556,0.704,0.0021,0.0012,0.0027
+non_english_drop,DOTA,28679,0.718,0.8492,0.7533,0.698,-0.0045,-0.0023,-0.006
+duplicates_majority,DOTA,24116,0.7143,0.8353,0.7427,0.6986,-0.0037,-0.0106,0.0006
+artifact_drop,DOTA,24029,0.7301,0.8493,0.7457,0.72,0.0158,0.003,0.0214
+cleanlab_relabeling,DOTA,22306,0.8273,0.9161,0.8263,0.832,0.0972,0.0806,0.112
+cleanlab_relabeling_svc,DOTA,22306,0.8477,0.9286,0.824,0.8785,0.0204,-0.0023,0.0465
