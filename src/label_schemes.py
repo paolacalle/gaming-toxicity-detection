@@ -3,8 +3,8 @@
 
 WOT_SCHEMES = {2: {0: 0, 1: 1, 2: 1, 3: 1, 4: 1, 5: 1}, 3: {0: 0, 1: 1, 2: 1, 3: 2, 4: 2, 5: 2}, 4: {0: 0, 1: 1, 2: 1, 3: 2, 4: 3, 5: 3}, 5: {0: 0, 1: 1, 2: 1, 3: 2, 4: 3, 5: 4}, 6: {0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5}}
 
-DOTA_SCHEMES = {2: {0: 0, 1: 1, 2: 1, 3: 1}, 3: {0: 0, 1: 1, 2: 2, 3: 2}, 4: {0: 0, 1: 1, 2: 2, 3: 3}}
+DOTA_SCHEMES = {2: {0: 0, 1: 1, 2: 1, 3: 1}, 3: {0: 0, 1: 1, 2: 2, 3: 1}, 4: {0: 0, 1: 1, 2: 2, 3: 3}}
 
-WOT_CLASS_NAMES = {2: ['Non-Toxic', 'Toxic'], 3: ['Non-Toxic', 'Insults/Other Offensive', 'Hate+Threats+Extremism'], 4: ['Non-Toxic', 'Insults/Other Offensive', 'Hate', 'Threats+Extremism'], 5: ['Non-Toxic', 'Insults/Other Offensive', 'Hate', 'Threats', 'Extremism'], 6: ['Non-Toxic', 'Insults', 'Other Offensive Texts', 'Hate and Harassment', 'Threats', 'Extremism']}
+WOT_CLASS_NAMES = {2: ['Non-Toxic', 'Toxic'], 3: ['Non-Toxic', 'Mild Toxicity', 'Severe Toxicity'], 4: ['Non-Toxic', 'Insults/Other Offensive', 'Hate', 'Threats+Extremism'], 5: ['Non-Toxic', 'Insults/Other Offensive', 'Hate', 'Threats', 'Extremism'], 6: ['Non-Toxic', 'Insults', 'Other Offensive Texts', 'Hate and Harassment', 'Threats', 'Extremism']}
 
-DOTA_CLASS_NAMES = {2: ['Non-Toxic', 'Toxic'], 3: ['Non-Toxic', 'Ego', 'Aggression+Impolite'], 4: ['Non-Toxic', 'Ego', 'Aggression', 'Impolite']}
+DOTA_CLASS_NAMES = {2: ['Non-Toxic', 'Toxic'], 3: ['Non-Toxic', 'Mild Toxicity', 'Severe Toxicity'], 4: ['Non-Toxic', 'Ego', 'Aggression', 'Impolite']}
