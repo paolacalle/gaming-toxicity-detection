@@ -1,7 +1,6 @@
 import joblib
 from sklearn.naive_bayes import ComplementNB
 
-
 class SocialMediaClassifier:
     def __init__(
         self,
