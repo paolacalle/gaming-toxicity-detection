@@ -1,5 +1,6 @@
 import joblib
 from sklearn.naive_bayes import ComplementNB
+from preprocess.social_media_text_preprocessor import preprocess_df
 
 class SocialMediaClassifier:
     def __init__(
@@ -22,6 +23,12 @@ class SocialMediaClassifier:
         - TF-IDF features for ComplementNB
         - scaled TF-IDF features for LinearSVC / LogisticRegression
         """
+        # FIRST APPLY THE SAME PREPROCESSING AS DURING TRAINING
+        X = preprocess_df(X)
+        
+        # THEN EXTRACT TF-IDF AND SCALED FEATURES
+        # Note: we must apply the same TF-IDF transformation as during training, 
+        # which includes the same tokenization and feature selection steps.
         X_nb = self.nb_tfidf.transform(X)
         X_scaled = self.scaler.transform(X_nb)
 
