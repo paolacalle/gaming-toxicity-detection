@@ -208,6 +208,3 @@ __marimo__/
 
 # Claude Code
 .claude/
-
-# Trained models
-models/
