@@ -3,21 +3,155 @@ data.py — Dataset loading, preprocessing, splitting, and PyTorch Dataset wrapp
 
 Public API
 ----------
-load_dataframe(path)                 → pd.DataFrame
-light_clean(text)                    → str
-make_three_way_split(df, ...)        → (train_df, val_df, test_df)
-prepare_labels(df, label_col, task)  → list[int]
-get_texts(df, text_col, clean_col)   → list[str]
-ToxicityDataset                      → torch.utils.data.Dataset
+load_dataframe(path)              → pd.DataFrame
+light_clean(text)                 → str
+make_splits(df, ...)              → (train_df, test_df)
+apply_label_scheme(df, scheme)    → pd.DataFrame  (label column remapped)
+prepare_labels(df, ...)           → list[int]
+get_texts(df, ...)                → list[str]
+ToxicityDataset                   → torch.utils.data.Dataset
+
+Label schemes
+-------------
+All three datasets are remapped to a shared 3-class space before training:
+    0 — Non-Toxic
+    1 — Mild toxicity  (insults, low-level offence)
+    2 — Severe toxicity (hate, threats, extremism, identity attacks)
+
+WOT_SCHEME_3  : WOT raw labels 0-5  → {0→0, 1→1, 2→1, 3→2, 4→2, 5→2}
+DOTA_SCHEME_3 : DOTA raw labels 0-3 → {0→0, 1→2, 2→2, 3→1}
+jigsaw3       : derived from Jigsaw sub-label columns:
+                  severe (2) if any of severe_toxic/obscene/threat/identity_hate
+                  mild   (1) if insult only
+                  non-toxic (0) otherwise
 """
 
 import re
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
+
+# ---------------------------------------------------------------------------
+# Label scheme constants
+# ---------------------------------------------------------------------------
+
+# n=3: Non-Toxic / Insults+OtherOffensive (Mild) / Hate+Threats+Extremism (Severe)
+WOT_SCHEME_3: dict = {0: 0, 1: 1, 2: 1, 3: 2, 4: 2, 5: 2}
+
+# n=3: Non-Toxic / Ego+Aggression (Mild) / Impolite (Severe)
+DOTA_SCHEME_3: dict = {0: 0, 1: 2, 2: 2, 3: 1}
+
+# Registry for dict-based schemes
+_SCHEME_REGISTRY: dict = {
+    "wot3":  WOT_SCHEME_3,
+    "dota3": DOTA_SCHEME_3,
+}
+
+
+# ---------------------------------------------------------------------------
+# Label scheme application
+# ---------------------------------------------------------------------------
+
+def apply_label_scheme(
+    df: pd.DataFrame,
+    scheme: str,
+    label_col: str = "label",
+) -> pd.DataFrame:
+    """
+    Remap the integer label column to a standardised 3-class space.
+
+    Supported schemes
+    -----------------
+    ``"wot3"``
+        Maps WOT raw labels 0–5 to {0→Non-Toxic, 1→Mild, 2→Severe}
+        using :data:`WOT_SCHEME_3`.
+
+    ``"dota3"``
+        Maps DOTA raw labels 0–3 to {0→Non-Toxic, 1→Mild, 2→Severe}
+        using :data:`DOTA_SCHEME_3`.
+
+    ``"jigsaw3"``
+        Derives 3-class labels from the six original Jigsaw sub-label
+        columns that must be present in *df*:
+
+        ==================  ====
+        Condition           Class
+        ==================  ====
+        severe_toxic=1,     2 (Severe)
+        obscene=1,
+        threat=1, or
+        identity_hate=1
+        insult=1 (only)     1 (Mild)
+        none active         0 (Non-Toxic)
+        ==================  ====
+
+        Priority: severe wins over mild.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame whose *label_col* will be overwritten with remapped values.
+        Must contain the Jigsaw sub-label columns when ``scheme="jigsaw3"``.
+    scheme : str
+        One of ``"wot3"``, ``"dota3"``, or ``"jigsaw3"``.
+    label_col : str
+        Name of the column to write remapped labels into.
+
+    Returns
+    -------
+    pd.DataFrame
+        A copy of *df* with *label_col* replaced by the remapped integers.
+
+    Raises
+    ------
+    ValueError
+        If the scheme is unknown, required columns are missing, or the
+        mapping leaves any labels as NaN.
+    """
+    df = df.copy()
+
+    if scheme == "jigsaw3":
+        _SEVERE_COLS = ["severe_toxic", "obscene", "threat", "identity_hate"]
+        _MILD_COL    = "insult"
+        missing = (set(_SEVERE_COLS) | {_MILD_COL}) - set(df.columns)
+        if missing:
+            raise ValueError(
+                f"'jigsaw3' scheme requires columns {sorted(missing)} "
+                f"— not found in DataFrame."
+            )
+        severe = (
+            df["severe_toxic"].astype(bool)
+            | df["obscene"].astype(bool)
+            | df["threat"].astype(bool)
+            | df["identity_hate"].astype(bool)
+        )
+        mild = df[_MILD_COL].astype(bool) & ~severe
+
+        new_labels = pd.Series(0, index=df.index, dtype=int)
+        new_labels[mild]   = 1
+        new_labels[severe] = 2
+        df[label_col] = new_labels
+        return df
+
+    mapping = _SCHEME_REGISTRY.get(scheme)
+    if mapping is None:
+        raise ValueError(
+            f"Unknown label scheme '{scheme}'. "
+            f"Available: {sorted(_SCHEME_REGISTRY)} + ['jigsaw3']"
+        )
+
+    df[label_col] = df[label_col].astype(int).map(mapping)
+    if df[label_col].isna().any():
+        bad = sorted(df.loc[df[label_col].isna()].index[:5].tolist())
+        raise ValueError(
+            f"Scheme '{scheme}' left {df[label_col].isna().sum()} "
+            f"unmapped rows (sample indices: {bad}). "
+            "Check that the mapping covers all raw label values."
+        )
+    df[label_col] = df[label_col].astype(int)
+    return df
 
 
 # ---------------------------------------------------------------------------
@@ -188,71 +322,55 @@ def load_dataframe(path: str) -> pd.DataFrame:
 # Train / val / test splitting
 # ---------------------------------------------------------------------------
 
-def make_three_way_split(
+def make_splits(
     df: pd.DataFrame,
     label_col: str = "label",
     test_size: float = 0.15,
-    val_size: float = 0.15,
     seed: int = 42,
 ) -> tuple:
     """
-    Create a stratified 70 / 15 / 15 train / val / test split.
+    Stratified two-way train / test split.
 
-    Stratification key
-    ------------------
-    We stratify on the **binary** version of the label (any label > 0 = toxic)
-    rather than the full multi-class label.  This prevents
+    Validation is not produced here because cross-validation handles the
+    train-time validation signal internally (each fold creates its own
+    held-out fold slice).  This function is used only to carve a final
+    held-out test set that is never seen during training or CV.
+
+    Stratification
+    --------------
+    Stratifies on the **binary** version of the label (``label > 0``)
+    rather than the raw multi-class label.  This prevents
     ``train_test_split`` from raising a ``ValueError`` when a rare class
-    (e.g. WOT toxicity level 5, which has ~20 total examples) would end up
-    with fewer than 2 samples in one split.
-
-    Split sizes
-    -----------
-    Given *N* total rows:
-        - test  = floor(N × test_size)
-        - val   = floor(remaining × val_size / (1 − test_size))
-        - train = the rest
+    (e.g. WOT toxicity level 5 with ~20 total examples) would end up with
+    fewer than two samples in one split.
 
     Parameters
     ----------
     df : pd.DataFrame
+        Full dataset to split (used in ``--dataset`` / single-file mode).
     label_col : str
-        Column used to derive the stratification key.
+        Integer label column used to derive the binary stratification key.
     test_size : float
-        Fraction of the full dataset reserved for testing.
-    val_size : float
-        Fraction of the full dataset reserved for validation.
+        Fraction reserved for the held-out test set (default 0.15 → 85/15).
     seed : int
+        Random seed for reproducibility.
 
     Returns
     -------
-    tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]
-        (train, val, test) — each with a fresh RangeIndex.
+    tuple[pd.DataFrame, pd.DataFrame]
+        ``(train_df, test_df)`` — each with a fresh RangeIndex.
     """
     binary_strat = (df[label_col] > 0).astype(int)
 
-    # Step 1 — carve out the held-out test set
-    train_val, test = train_test_split(
+    train, test = train_test_split(
         df,
         test_size=test_size,
         random_state=seed,
         stratify=binary_strat,
     )
 
-    # Step 2 — split the remaining data into train and val
-    # val_size / (1 - test_size) converts the target fraction from
-    # "fraction of total" to "fraction of the train_val pool".
-    binary_strat_tv = (train_val[label_col] > 0).astype(int)
-    train, val = train_test_split(
-        train_val,
-        test_size=val_size / (1.0 - test_size),
-        random_state=seed,
-        stratify=binary_strat_tv,
-    )
-
     return (
         train.reset_index(drop=True),
-        val.reset_index(drop=True),
         test.reset_index(drop=True),
     )
 
@@ -264,12 +382,11 @@ def preprocess_and_split(
     text_col: str = "message",
     label_col: str = "label",
     test_size: float = 0.15,
-    val_size: float = 0.15,
     seed: int = 42,
 ) -> tuple:
     """
-    Load a raw parquet/CSV, add preprocessing columns, apply a 70/15/15
-    split, and save the three parquets to *output_dir*.
+    Load a raw parquet/CSV, add preprocessing columns, apply an 85/15
+    train/test split, and save both parquets to *output_dir*.
 
     Added columns
     -------------
@@ -282,16 +399,17 @@ def preprocess_and_split(
     raw_path : str
         Path to the unsplit source file.
     output_dir : str
-        Destination directory for ``{domain}_train/val/test.parquet``.
+        Destination directory for ``{domain}_train.parquet`` and
+        ``{domain}_test.parquet``.
     domain : str
         Short name used to construct output filenames (e.g. ``"wot"``).
-    text_col, label_col, test_size, val_size, seed
+    text_col, label_col, test_size, seed
         Forwarded to helpers.
 
     Returns
     -------
-    tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]
-        (train_df, val_df, test_df) — also persisted to disk.
+    tuple[pd.DataFrame, pd.DataFrame]
+        (train_df, test_df) — also persisted to disk.
     """
     df = load_dataframe(raw_path)
 
@@ -299,18 +417,17 @@ def preprocess_and_split(
     df["comment_length"] = df[text_col].str.split().str.len()
     df["clean_message"] = df[text_col].apply(light_clean)
 
-    train_df, val_df, test_df = make_three_way_split(
-        df, label_col=label_col, test_size=test_size, val_size=val_size, seed=seed
+    train_df, test_df = make_splits(
+        df, label_col=label_col, test_size=test_size, seed=seed
     )
 
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     keep_cols = [text_col, label_col, "comment_length", "clean_message"]
     train_df[keep_cols].to_parquet(output_dir / f"{domain}_train.parquet", index=False)
-    val_df[keep_cols].to_parquet(output_dir / f"{domain}_val.parquet",   index=False)
-    test_df[keep_cols].to_parquet(output_dir / f"{domain}_test.parquet",  index=False)
+    test_df[keep_cols].to_parquet( output_dir / f"{domain}_test.parquet",  index=False)
 
-    return train_df, val_df, test_df
+    return train_df, test_df
 
 
 # ---------------------------------------------------------------------------
@@ -360,9 +477,7 @@ class ToxicityDataset:
         tokenizer,
         max_length: int = 64,
     ):
-        # Defer the torch import to construction time so that the rest of the
-        # module (light_clean, get_texts, make_three_way_split, …) can be
-        # imported without a PyTorch installation being present.
+        
         import torch
         from torch.utils.data import Dataset as _Dataset
 

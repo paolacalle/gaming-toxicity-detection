@@ -24,11 +24,17 @@ import random
 from pathlib import Path
 from typing import Callable, Optional
 
-import matplotlib
-matplotlib.use("Agg")          # non-interactive backend — safe on headless servers
-import matplotlib.pyplot as plt
 import numpy as np
-import seaborn as sns
+
+# NOTE: matplotlib and seaborn are imported lazily inside the plotting
+# functions below (plot_training_history, plot_confusion_matrix).
+#
+# Root cause (Windows-specific): importing matplotlib.pyplot after
+# transformers.Trainer (which loads Accelerate + CUDA DLLs) corrupts
+# PyArrow's memory allocator so that any subsequent pd.read_parquet() call
+# crashes the process with STATUS_ACCESS_VIOLATION (0xC0000005 / exit 3221225477).
+# Deferring both imports to the plotting calls — which always happen after
+# all data loading and training are complete — avoids the conflict entirely.
 import torch
 from sklearn.metrics import (
     accuracy_score,
@@ -369,6 +375,11 @@ def plot_training_history(
         Key used to extract the validation metric from ``log_history``
         (e.g. ``"eval_f1"`` for binary, ``"eval_f1_macro"`` for multi-class).
     """
+    # Deferred import — see module-level comment about Windows crash.
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
     train_steps, train_losses = [], []
     val_steps, val_values = [], []
 
@@ -428,6 +439,12 @@ def plot_confusion_matrix(
     save_path : str
         Destination PNG file path.
     """
+    # Deferred imports — see module-level comment about Windows crash.
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+
     n = len(label_names)
     cm = confusion_matrix(y_true, y_pred, labels=list(range(n)))
 

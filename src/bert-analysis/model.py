@@ -1,10 +1,14 @@
 """
-model.py — BERT model construction, weighted trainer, and save/load utilities.
+model.py — Transformer model construction, weighted trainer, and save/load utilities.
+
+Uses HuggingFace Auto classes so the same code works for any supported
+sequence-classification checkpoint (bert-base-uncased, distilbert-base-uncased,
+roberta-base, etc.).  Pass the model identifier via --model_name in train.py.
 
 Public API
 ----------
-build_tokenizer(model_name)               → BertTokenizer
-build_model(model_name, num_labels)       → BertForSequenceClassification
+build_tokenizer(model_name)               → PreTrainedTokenizerBase
+build_model(model_name, num_labels)       → PreTrainedModel
 save_model(model, tokenizer, output_dir)  → None
 load_model(model_dir)                     → (model, tokenizer)
 WeightedTrainer                           → transformers.Trainer subclass
@@ -13,8 +17,8 @@ WeightedTrainer                           → transformers.Trainer subclass
 import torch
 from torch import nn
 from transformers import (
-    BertForSequenceClassification,
-    BertTokenizer,
+    AutoModelForSequenceClassification,
+    AutoTokenizer,
     Trainer,
 )
 
@@ -23,34 +27,36 @@ from transformers import (
 # Model construction
 # ---------------------------------------------------------------------------
 
-def build_tokenizer(model_name: str = "bert-base-uncased") -> BertTokenizer:
+def build_tokenizer(model_name: str = "bert-base-uncased"):
     """
-    Load a BERT tokenizer from the HuggingFace hub or a local directory.
+    Load a tokenizer from the HuggingFace hub or a local directory.
+
+    Uses AutoTokenizer so any supported checkpoint works without code changes
+    (bert-base-uncased, distilbert-base-uncased, roberta-base, etc.).
 
     Parameters
     ----------
     model_name : str
-        HuggingFace model identifier (e.g. ``"bert-base-uncased"``) or a
-        path to a locally saved tokenizer directory.
+        HuggingFace model identifier (e.g. ``"distilbert-base-uncased"``) or
+        a path to a locally saved tokenizer directory.
 
     Returns
     -------
-    BertTokenizer
+    PreTrainedTokenizerBase
     """
-    return BertTokenizer.from_pretrained(model_name)
+    return AutoTokenizer.from_pretrained(model_name)
 
 
 def build_model(
     model_name: str = "bert-base-uncased",
     num_labels: int = 2,
-) -> BertForSequenceClassification:
+):
     """
-    Load a pre-trained BERT encoder with a fresh classification head.
+    Load a pre-trained transformer encoder with a fresh classification head.
 
-    The classification head is a single linear layer whose output size is
-    automatically set to ``num_labels``.  It is randomly initialised and
-    will be trained during fine-tuning; the encoder weights are loaded from
-    the checkpoint.
+    Uses AutoModelForSequenceClassification so any supported checkpoint works
+    without code changes.  The classification head is randomly initialised;
+    the encoder weights are loaded from the checkpoint.
 
     Parameters
     ----------
@@ -62,9 +68,9 @@ def build_model(
 
     Returns
     -------
-    BertForSequenceClassification
+    PreTrainedModel
     """
-    return BertForSequenceClassification.from_pretrained(
+    return AutoModelForSequenceClassification.from_pretrained(
         model_name,
         num_labels=num_labels,
     )
@@ -75,8 +81,8 @@ def build_model(
 # ---------------------------------------------------------------------------
 
 def save_model(
-    model: BertForSequenceClassification,
-    tokenizer: BertTokenizer,
+    model,
+    tokenizer,
     output_dir: str,
 ) -> None:
     """
@@ -88,8 +94,8 @@ def save_model(
 
     Parameters
     ----------
-    model : BertForSequenceClassification
-    tokenizer : BertTokenizer
+    model : PreTrainedModel
+    tokenizer : PreTrainedTokenizerBase
     output_dir : str
         Destination directory (created if it does not exist).
     """
@@ -119,14 +125,14 @@ def load_model(
 
     Returns
     -------
-    tuple[BertForSequenceClassification, BertTokenizer]
+    tuple[PreTrainedModel, PreTrainedTokenizerBase]
     """
     from pathlib import Path as _Path
     # Resolve to an absolute path so HuggingFace always sees a local directory,
     # never a relative path that could be misidentified as a Hub repo ID.
-    abs_dir = str(_Path(model_dir).resolve())
-    model     = BertForSequenceClassification.from_pretrained(abs_dir)
-    tokenizer = BertTokenizer.from_pretrained(abs_dir)
+    abs_dir   = str(_Path(model_dir).resolve())
+    model     = AutoModelForSequenceClassification.from_pretrained(abs_dir)
+    tokenizer = AutoTokenizer.from_pretrained(abs_dir)
     return model, tokenizer
 
 

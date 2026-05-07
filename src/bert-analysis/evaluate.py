@@ -41,6 +41,13 @@ import json
 import sys
 from pathlib import Path
 
+# ── Windows DLL fix ──────────────────────────────────────────────────────────
+# Same fix as train.py — pre-init PyArrow before any heavy C extension loads.
+import pyarrow as _pa
+_pa.array([0])
+del _pa
+# ─────────────────────────────────────────────────────────────────────────────
+
 import numpy as np
 import pandas as pd
 from sklearn.metrics import classification_report
