@@ -8,6 +8,42 @@ class SimpleMajority:
 
         self.model_collections = model_collections
 
+    def _to_single_label(self, preds):
+        """
+        Convert predictions to 1D class labels.
+
+        Handles:
+        - already single-label predictions: shape (n_samples,)
+        - multi-output binary predictions: shape (n_samples, n_outputs)
+
+        For multi-output:
+            [0, 0] -> 0
+            [1, 0] -> 1
+            [0, 1] -> 2
+            [1, 1] -> highest active label + 1
+        """
+        preds = np.asarray(preds)
+
+        if preds.ndim == 1:
+            return preds
+
+        if preds.ndim != 2:
+            raise ValueError(
+                f"Predictions must be 1D or 2D. Got shape {preds.shape}."
+            )
+
+        single_labels = np.zeros(preds.shape[0], dtype=int)
+
+        for i, row in enumerate(preds):
+            active = np.where(row == 1)[0]
+
+            if len(active) == 0:
+                single_labels[i] = 0
+            else:
+                single_labels[i] = active.max() + 1
+
+        return single_labels
+
     def _get_predictions_dict(self, X):
         """
         Collect predictions from all model collections.
@@ -24,7 +60,13 @@ class SimpleMajority:
                 if model_name in predictions_dict:
                     raise ValueError(f"Duplicate model name found: {model_name}")
 
-                predictions_dict[model_name] = np.asarray(preds)
+                preds = self._to_single_label(preds)
+
+                predictions_dict[model_name] = preds
+
+                print(f"{model_name}: {preds.shape}")
+
+        print(f"Collected predictions from {len(predictions_dict)} models.")
 
         return predictions_dict
 
@@ -32,20 +74,26 @@ class SimpleMajority:
         """
         Simple majority voting.
 
-        Each model inside each collection casts one vote.
+        Each model inside each collection casts one vote per sample.
         The class with the most votes is selected.
         """
         print("Predicting with SimpleMajority...")
 
+        pred_len = len(X)
+        print(f"Input has {pred_len} samples.")
+
         predictions_dict = self._get_predictions_dict(X)
 
-        predictions = np.vstack(list(predictions_dict.values()))
-        # shape: (n_models, n_samples)
+        # shape: (n_samples, n_models)
+        predictions = np.column_stack(list(predictions_dict.values()))
+
+        print(f"Prediction matrix shape: {predictions.shape}")
+        print(f"Aggregating predictions from {predictions.shape[1]} models...")
 
         majority_votes = []
 
-        for i in range(predictions.shape[1]):
-            labels, counts = np.unique(predictions[:, i], return_counts=True)
+        for i in range(predictions.shape[0]):
+            labels, counts = np.unique(predictions[i, :], return_counts=True)
             majority_label = labels[np.argmax(counts)]
             majority_votes.append(majority_label)
 
