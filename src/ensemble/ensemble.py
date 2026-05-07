@@ -4,7 +4,7 @@ import src.ensemble.weighted_confidence_majority as wcm
 import src.ensemble.stacked as st
 
 class Ensemble:
-    def __init__(self, model_collections):
+    def __init__(self, model_collections: list):
         if not model_collections:
             raise ValueError("At least one model collection is required.")
 

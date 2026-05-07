@@ -173,4 +173,4 @@ class WeightedConfidenceMajority:
         self.weights = best_weights
         self.threshold = best_threshold
 
-        return best_weights, best_score
+        return best_weights, best_threshold, best_score

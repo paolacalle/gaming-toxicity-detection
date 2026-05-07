@@ -1,6 +1,6 @@
 import joblib
 from sklearn.naive_bayes import ComplementNB
-from preprocess.social_media_text_preprocessor import SocialMediaTextPreprocessor
+from src.preprocess.social_media_text_preprocessor import SocialMediaTextPreprocessor
 from src.model.base_model_collection import BaseModelCollection
 
 class SocialMediaModelCollection(BaseModelCollection):
@@ -27,7 +27,7 @@ class SocialMediaModelCollection(BaseModelCollection):
         - scaled TF-IDF features for LinearSVC / LogisticRegression
         """
         # FIRST APPLY THE SAME PREPROCESSING AS DURING TRAINING
-        X = self.preprocessor.preprocess_df(X)
+        X = self.preprocessor.preprocess_series(X)
         
         # THEN EXTRACT TF-IDF AND SCALED FEATURES
         # Note: we must apply the same TF-IDF transformation as during training, 
@@ -46,7 +46,8 @@ class SocialMediaModelCollection(BaseModelCollection):
         predictions = {} # model_name : predicted labels array
 
         for model_path, clf in self.classifiers.items():
-            model_name = model_path.split("/")[-1]
+            # posixpath object
+            model_name = model_path.name.split(".")[0]
 
             if isinstance(clf, ComplementNB) or "ComplementNB" in model_name:
                 X_use = X_nb
@@ -70,7 +71,8 @@ class SocialMediaModelCollection(BaseModelCollection):
         confidences = {} # model_name : toxic confidence scores array
 
         for model_path, clf in self.classifiers.items():
-            model_name = model_path.split("/")[-1]
+            # posixpath object
+            model_name = model_path.name.split(".")[0]
 
             if isinstance(clf, ComplementNB) or "ComplementNB" in model_name:
                 X_use = X_nb

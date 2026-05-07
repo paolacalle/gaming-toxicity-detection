@@ -198,7 +198,7 @@ class SocialMediaTextPreprocessor:
     def preprocess_df(
         self,
         df: pd.DataFrame,
-        text_col: str,
+        text_col: str = "text",
         output_col: str = "clean_text",
         slang: bool | None = None,
         copy: bool = True,
@@ -229,6 +229,17 @@ class SocialMediaTextPreprocessor:
 
         df[output_col] = self.preprocess_series(df[text_col], slang=slang)
         return df
+    
+    def preprocess_series(
+        self,
+        series: pd.Series,
+        slang: bool | None = None,
+    ) -> pd.Series:
+        """
+        Apply clean_text to a pandas Series.
+        """
+        return series.apply(lambda x: self.clean_text(x, slang=slang)
+    )
 
     def extract_length_features(self, series: pd.Series) -> pd.DataFrame:
         """
