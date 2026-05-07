@@ -73,9 +73,6 @@ class Ensemble:
             thresholds=thresholds,
         )
 
-    def predict_weighted_majority(self, X, weights=None):
-        return self.weighted_majority.predict(X, weights)
-
     def predict_weighted_confidence_majority(
         self,
         X,
