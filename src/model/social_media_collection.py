@@ -1,8 +1,9 @@
 import joblib
 from sklearn.naive_bayes import ComplementNB
 from preprocess.social_media_text_preprocessor import SocialMediaTextPreprocessor
+from src.model.base_model_collection import BaseModelCollection
 
-class SocialMediaClassifier:
+class SocialMediaModelCollection(BaseModelCollection):
     def __init__(
         self,
         model_joblibs: list[str],

@@ -4,9 +4,9 @@ import numpy as np
 import pandas as pd
 import torch
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
+from src.model.base_model_collection import BaseModelCollection
 
-
-class BertToxicityClassifier:
+class BertToxicityModelCollection(BaseModelCollection):
     """
     Wrapper for BERT toxicity models from:
     https://huggingface.co/jforward/bert-toxicity
