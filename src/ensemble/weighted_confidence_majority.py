@@ -94,19 +94,53 @@ class WeightedConfidenceMajority:
         return model_names, np.stack(matrices, axis=0)
 
     def _ensure_weights(self, model_names, weights=None):
+        """
+        Ensures weights are aligned with model_names.
+
+        weights can be:
+            - None
+            - list / np.ndarray in the exact model_names order
+            - dict mapping model_name -> weight
+        """
         if weights is None:
-            if self.weights is None or len(self.weights) != len(model_names):
-                self.weights = np.ones(len(model_names)) / len(model_names)
+            if self.weights is None:
+                weights = np.ones(len(model_names)) / len(model_names)
+            else:
+                weights = self.weights
 
-            weights = self.weights
+        # Case 1: weights passed as dictionary
+        if isinstance(weights, dict):
+            print("Ensuring weights from dictionary...")
+            missing = set(model_names) - set(weights.keys())
+            extra = set(weights.keys()) - set(model_names)
 
-        weights = np.asarray(weights, dtype=float)
+            if missing:
+                raise ValueError(
+                    f"Missing weights for models: {sorted(missing)}. "
+                    f"Expected model names: {model_names}"
+                )
 
-        if len(weights) != len(model_names):
-            raise ValueError(
-                f"Number of weights must match number of models. "
-                f"Got {len(weights)} weights for {len(model_names)} models."
-            )
+            if extra:
+                raise ValueError(
+                    f"Got weights for unknown models: {sorted(extra)}. "
+                    f"Expected model names: {model_names}"
+                )
+                
+            print("Model names and weight keys match. Constructing weight array...")
+            print("Respecting order of model names...")
+
+            weights = np.array([weights[name] for name in model_names], dtype=float)
+
+        # Case 2: weights passed as list / ndarray
+        else:
+            weights = np.asarray(weights, dtype=float)
+
+            if len(weights) != len(model_names):
+                raise ValueError(
+                    f"Number of weights must match number of models. "
+                    f"Got {len(weights)} weights for {len(model_names)} models. "
+                    f"Model order is: {model_names}"
+                )
 
         if np.any(weights < 0):
             raise ValueError("Weights must be nonnegative.")
@@ -247,8 +281,13 @@ class WeightedConfidenceMajority:
                     best_score = score
                     best_weights = weights.copy()
                     best_threshold = threshold
+                    
+        # best weights dict so you know 
+        # which model got which weight in the best combination
+        best_weights_dict = dict(zip(model_names, best_weights))
+        print("Best weights:", best_weights_dict)
 
         self.weights = best_weights
         self.threshold = best_threshold
 
-        return best_weights, best_threshold, best_score
+        return best_weights, best_threshold, best_score, model_names

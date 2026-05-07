@@ -1,117 +1,132 @@
 from __future__ import annotations
 
+from click import Tuple
+from nltk.featstruct import TYPE
 import numpy as np
 
 from src.model.base_model_collection import BaseModelCollection
-from src.model.bert_collection import BertToxicityModelCollection
-from src.model.game_model_collection import GamingModelCollection
-from src.model.social_media_collection import SocialMediaModelCollection
-from src.ensemble.ensemble import Ensemble
-
-
-ModelCollection = (
-    BertToxicityModelCollection
-    | GamingModelCollection
-    | SocialMediaModelCollection
-)
+from src.model.fixed_model_ensemble import FixedWeightEnsembleModel
 
 
 class EnsembleModel(BaseModelCollection):
     """
-    Wraps an Ensemble so it can behave like a BaseModelCollection.
+    Combines multiple FixedWeightEnsembleModel objects into a higher-level ensemble.
 
-    This lets an ensemble itself be used as a model collection inside
-    another ensemble if needed.
+    Important:
+    This class combines confidence/probability scores, not class labels.
     """
 
     def __init__(
         self,
-        model_collections: list[ModelCollection],
+        model_ensembles: list[FixedWeightEnsembleModel],
         weights: np.ndarray | list[float] | None = None,
-        threshold: float | None = None,
         name: str = "ensemble_model",
     ):
-        if not model_collections:
-            raise ValueError("At least one model collection is required.")
+        if not model_ensembles:
+            raise ValueError("At least one model ensemble is required.")
 
-        self.model_collections = model_collections
-        self.ensemble = Ensemble(model_collections)
-
-        self.weights = weights
-        self.threshold = threshold
+        self.model_ensembles = model_ensembles
         self.name = name
 
-    def set_weights(self, weights):
+        if weights is not None:
+            weights = np.asarray(weights, dtype=float)
+
+            if len(weights) != len(model_ensembles):
+                raise ValueError(
+                    f"Expected {len(model_ensembles)} weights, got {len(weights)}."
+                )
+
+            if weights.sum() <= 0:
+                raise ValueError("Weights must sum to a positive value.")
+
+            weights = weights / weights.sum()
+
         self.weights = weights
+
+    def set_weights(self, weights):
+        weights = np.asarray(weights, dtype=float)
+
+        if len(weights) != len(self.model_ensembles):
+            raise ValueError(
+                f"Expected {len(self.model_ensembles)} weights, got {len(weights)}."
+            )
+
+        if weights.sum() <= 0:
+            raise ValueError("Weights must sum to a positive value.")
+
+        self.weights = weights / weights.sum()
         return self
 
-    def set_threshold(self, threshold: float):
-        self.threshold = threshold
-        return self
+    def predict_weighted_confidence_scores(self, X) -> np.ndarray:
+        """
+        Average confidence/probability scores from each child ensemble.
+
+        Expected child output:
+            shape (n_samples, n_classes)
+        """
+        scores = []
+
+        for ensemble in self.model_ensembles:
+            ensemble_scores = ensemble.predict_weighted_confidence_scores(X)
+
+            if ensemble_scores.ndim != 2:
+                raise ValueError(
+                    f"{ensemble.name} must return a 2D confidence matrix, "
+                    f"got shape {ensemble_scores.shape}."
+                )
+
+            scores.append(ensemble_scores)
+
+        scores = np.asarray(scores)
+        # shape: (n_ensembles, n_samples, n_classes)
+
+        if self.weights is not None:
+            final_scores = np.average(scores, axis=0, weights=self.weights)
+        else:
+            final_scores = np.mean(scores, axis=0)
+
+        return final_scores
 
     def predict(self, X) -> np.ndarray:
         """
-        Default prediction method.
+        Final class prediction from majority or weighted-majority votes
+        over child ensemble predictions.
 
-        Uses weighted confidence if weights are set.
-        Otherwise falls back to simple majority.
+        Works for binary and multiclass.
         """
-        if self.weights is not None:
-            return self.predict_weighted_confidence_majority(X)
+        votes = np.asarray([
+            ensemble.predict(X) for ensemble in self.model_ensembles
+        ])
 
-        return self.ensemble.predict_simple_majority(X)
+        # shape: (n_ensembles, n_samples)
+        n_samples = votes.shape[1]
+        final_votes = np.empty(n_samples, dtype=votes.dtype)
+
+        for i in range(n_samples):
+            ensemble_votes = votes[:, i]
+            unique_classes = np.unique(ensemble_votes)
+
+            if self.weights is not None:
+                class_scores = np.array([
+                    self.weights[ensemble_votes == cls].sum()
+                    for cls in unique_classes
+                ])
+            else:
+                class_scores = np.array([
+                    np.sum(ensemble_votes == cls)
+                    for cls in unique_classes
+                ])
+
+            final_votes[i] = unique_classes[np.argmax(class_scores)]
+
+        return final_votes
 
     def predict_individual(self, X) -> dict[str, np.ndarray]:
-        """
-        Required by BaseModelCollection.
-
-        Since this wrapper represents one ensemble model, return:
-            ensemble_name -> predictions
-        """
         return {
             self.name: self.predict(X)
         }
 
-    def predict_simple_majority(self, X) -> np.ndarray:
-        return self.ensemble.predict_simple_majority(X)
-
-    def predict_weighted_majority(self, X) -> np.ndarray:
-        if self.weights is None:
-            raise ValueError("Weights must be set to use weighted majority prediction.")
-
-        return self.ensemble.predict_weighted_majority(
-            X,
-            weights=self.weights,
-        )
-
-    def predict_weighted_confidence_majority(self, X) -> np.ndarray:
-        if self.weights is None:
-            raise ValueError(
-                "Weights must be set to use weighted confidence majority prediction."
-            )
-
-        return self.ensemble.predict_weighted_confidence_majority(
-            X,
-            weights=self.weights,
-            threshold=self.threshold,
-        )
-
-    def predict_weighted_confidence_scores(self, X) -> np.ndarray:
-        if self.weights is None:
-            raise ValueError("Weights must be set to use weighted confidence scores.")
-
-        return self.ensemble.predict_weighted_confidence_scores(
-            X,
-            weights=self.weights,
-        )
-
     def predict_confidence(self, X) -> dict[str, np.ndarray]:
-        """
-        Required by BaseModelCollection.
-
-        Returns ensemble confidence scores as:
-            ensemble_name -> scores
-        """
         return {
             self.name: self.predict_weighted_confidence_scores(X)
         }
