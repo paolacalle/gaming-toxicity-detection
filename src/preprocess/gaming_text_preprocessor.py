@@ -5,7 +5,7 @@ from scipy.sparse import spmatrix
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.utils.validation import check_is_fitted
 
-from tokenizer import tokenize
+from src.tokenizer import tokenize
 
 
 class GamingTextPreprocessor:
