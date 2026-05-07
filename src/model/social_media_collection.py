@@ -238,13 +238,12 @@ class SocialMediaModelCollection(BaseModelCollection):
             returns class-confidence matrix:
                 shape (n_samples, n_classes)
 
-        For this project:
+        Example for two binary outputs:
             columns = [non-toxic, mild, severe]
         """
         X_nb, X_scaled = self._get_features(X)
 
         confidences = {}
-        n_classes = 3
 
         for model_path, model in self.classifiers.items():
             model_name = self._clean_model_name(model_path)
@@ -261,36 +260,14 @@ class SocialMediaModelCollection(BaseModelCollection):
 
             else:
                 y_pred = model.predict(X_use)
-                y_pred = np.asarray(y_pred)
 
-                # If model outputs multi-label/multi-output predictions,
-                # convert them into one 3-class label first.
-                if y_pred.ndim == 2:
+                if self.output_mode == "single_label":
                     y_pred = self._multioutput_to_single_label(y_pred)
 
-                elif y_pred.ndim != 1:
-                    raise ValueError(
-                        f"{model_name} predict output must be 1D or 2D, "
-                        f"got shape {y_pred.shape}"
-                    )
-
-                y_pred = y_pred.astype(int)
-
+                # fallback: one-hot hard confidence
+                n_classes = int(np.max(y_pred)) + 1
                 confs = np.zeros((len(y_pred), n_classes))
                 confs[np.arange(len(y_pred)), y_pred] = 1.0
-
-            confs = np.asarray(confs, dtype=float)
-
-            if confs.ndim != 2:
-                raise ValueError(
-                    f"{model_name} confidence output must be 2D, got shape {confs.shape}"
-                )
-
-            if confs.shape[1] != n_classes:
-                raise ValueError(
-                    f"{model_name} must output {n_classes} classes, "
-                    f"got shape {confs.shape}"
-                )
 
             confidences[model_name] = confs
 
