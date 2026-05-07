@@ -107,14 +107,3 @@ def ood_score(fitted_pipe, X_ood: pd.Series, y_ood: pd.Series) -> dict:
         'ood_precision': _precision(y_ood, y_pred),
         'ood_auc':             compute_auc(fitted_pipe, X_ood, y_ood),
     }
-
-
-def append_registry(row: dict, path=None) -> None:
-    # append one result row to the shared CSV registry
-    if path is None:
-        path = Path(__file__).resolve().parents[1] / 'data' / 'results' / 'results_registry.csv'
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    row = dict(row)
-    row.setdefault('timestamp', time.strftime('%Y-%m-%d %H:%M:%S'))
-    pd.DataFrame([row]).to_csv(path, mode='a', header=not path.exists(), index=False)
