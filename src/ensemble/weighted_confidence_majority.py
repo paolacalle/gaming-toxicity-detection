@@ -2,75 +2,119 @@ import numpy as np
 
 
 class WeightedConfidenceMajority:
-    def __init__(self, classifiers):
-        if not classifiers:
-            raise ValueError("At least one classifier is required.")
+    def __init__(self, model_collections):
+        if not model_collections:
+            raise ValueError("At least one model collection is required.")
 
-        self.classifiers = classifiers
-        self.weights = np.ones(len(classifiers)) / len(classifiers)
+        self.model_collections = model_collections
+        self.model_names = None
+        self.weights = None
         self.weight_history = []
+        self.threshold = 0.5
 
-        # assume all classifiers were trained on the same classes
-        if not hasattr(classifiers[0], "classes_"):
-            raise ValueError("Classifiers must be fitted and have a classes_ attribute.")
+        # Binary setting by design because predict_confidence returns toxic score
+        self.classes_ = np.array([0, 1])
 
-        self.classes_ = classifiers[0].classes_
-
-    def _get_probas(self, X):
+    def _get_confidences_dict(self, X):
         """
-        Gets predicted probabilities from each classifier.
+        Collect toxic-class confidence scores from all model collections.
 
-        Assumes all classifiers return probabilities in the same class order.
+        Each collection must implement:
+            predict_confidence(X) -> dict[str, np.ndarray]
         """
-        probas = []
+        confidences_dict = {}
 
-        for clf in self.classifiers:
-            if not hasattr(clf, "predict_proba"):
-                raise ValueError(f"{clf.__class__.__name__} does not support predict_proba.")
+        for collection in self.model_collections:
+            collection_confidences = collection.predict_confidence(X)
 
-            if not np.array_equal(clf.classes_, self.classes_):
-                raise ValueError("All classifiers must have the same class order.")
+            for model_name, scores in collection_confidences.items():
+                if model_name in confidences_dict:
+                    raise ValueError(f"Duplicate model name found: {model_name}")
 
-            probas.append(clf.predict_proba(X))
+                confidences_dict[model_name] = np.asarray(scores, dtype=float)
 
-        return probas
+        return confidences_dict
+
+    def _get_confidence_matrix(self, X):
+        """
+        Returns
+        -------
+        model_names : list[str]
+        confidence_matrix : np.ndarray
+            Shape: (n_samples, n_models)
+        """
+        confidences_dict = self._get_confidences_dict(X)
+
+        model_names = list(confidences_dict.keys())
+        confidence_matrix = np.vstack(
+            [confidences_dict[name] for name in model_names]
+        ).T
+
+        return model_names, confidence_matrix
+
+    def _ensure_weights(self, model_names, weights=None):
+        """
+        Validate/initialize weights.
+        """
+        if weights is None:
+            if self.weights is None or len(self.weights) != len(model_names):
+                self.weights = np.ones(len(model_names)) / len(model_names)
+
+            weights = self.weights
+
+        weights = np.asarray(weights, dtype=float)
+
+        if len(weights) != len(model_names):
+            raise ValueError("Number of weights must match number of models.")
+
+        if np.any(weights < 0):
+            raise ValueError("Weights must be nonnegative.")
+
+        if weights.sum() == 0:
+            raise ValueError("At least one weight must be nonzero.")
+
+        if not np.isclose(weights.sum(), 1.0):
+            weights = weights / weights.sum()
+
+        return weights
 
     def predict(self, X):
         """
         Unweighted confidence averaging.
 
-        Each classifier contributes equally.
+        Each model contributes equally.
         """
-        probas = self._get_probas(X)
-        avg_probas = np.mean(probas, axis=0)
+        model_names, confidence_matrix = self._get_confidence_matrix(X)
 
-        return self.classes_[avg_probas.argmax(axis=1)]
+        avg_scores = confidence_matrix.mean(axis=1)
 
-    def predict_weighted(self, X, weights=None):
+        return (avg_scores >= self.threshold).astype(int)
+
+    def predict_weighted(self, X, weights=None, threshold=None):
         """
         Weighted confidence averaging.
 
-        Each classifier's probability distribution is weighted before averaging.
+        Each model's toxic confidence score is weighted before averaging.
         """
-        if weights is None:
-            weights = self.weights
+        if threshold is None:
+            threshold = self.threshold
 
-        weights = np.asarray(weights)
+        model_names, confidence_matrix = self._get_confidence_matrix(X)
+        weights = self._ensure_weights(model_names, weights)
 
-        if len(weights) != len(self.classifiers):
-            raise ValueError("Number of weights must match number of classifiers.")
+        weighted_scores = confidence_matrix @ weights
 
-        if np.any(weights < 0):
-            raise ValueError("Weights must be nonnegative.")
+        return (weighted_scores >= threshold).astype(int)
 
-        if not np.isclose(weights.sum(), 1.0):
-            weights = weights / weights.sum()
+    def predict_scores(self, X, weights=None):
+        """
+        Return weighted confidence scores without thresholding.
+        Useful for threshold tuning.
+        """
+        model_names, confidence_matrix = self._get_confidence_matrix(X)
+        weights = self._ensure_weights(model_names, weights)
 
-        probas = self._get_probas(X)
-
-        weighted_probas = sum(w * p for w, p in zip(weights, probas))
-
-        return self.classes_[weighted_probas.argmax(axis=1)]
+        return confidence_matrix @ weights
 
     def fit_weights_random_search(
         self,
@@ -78,41 +122,55 @@ class WeightedConfidenceMajority:
         y_val,
         score_func,
         n_trials=1000,
-        random_state=42
+        random_state=42,
+        thresholds=None,
     ):
         """
         Finds ensemble weights by randomly sampling weight combinations
         and keeping the weights with the best validation score.
 
+        Also optionally tunes threshold.
+
         score_func should take:
             score_func(y_true, y_pred)
-
-        Example:
-            sklearn.metrics.f1_score with average="macro"
         """
         rng = np.random.default_rng(random_state)
 
-        probas = self._get_probas(X_val)
+        model_names, confidence_matrix = self._get_confidence_matrix(X_val)
+        n_models = len(model_names)
+
+        if thresholds is None:
+            thresholds = [self.threshold]
 
         best_score = -np.inf
-        best_weights = self.weights.copy()
+        best_weights = np.ones(n_models) / n_models
+        best_threshold = self.threshold
 
         self.weight_history = []
 
         for _ in range(n_trials):
-            weights = rng.dirichlet(np.ones(len(self.classifiers)))
+            weights = rng.dirichlet(np.ones(n_models))
+            weighted_scores = confidence_matrix @ weights
 
-            weighted_probas = sum(w * p for w, p in zip(weights, probas))
-            predictions = self.classes_[weighted_probas.argmax(axis=1)]
+            for threshold in thresholds:
+                predictions = (weighted_scores >= threshold).astype(int)
 
-            score = score_func(y_val, predictions)
+                score = score_func(y_val, predictions)
 
-            self.weight_history.append((weights.copy(), score))
+                self.weight_history.append(
+                    {
+                        "weights": weights.copy(),
+                        "threshold": threshold,
+                        "score": score,
+                    }
+                )
 
-            if score > best_score:
-                best_score = score
-                best_weights = weights.copy()
+                if score > best_score:
+                    best_score = score
+                    best_weights = weights.copy()
+                    best_threshold = threshold
 
         self.weights = best_weights
+        self.threshold = best_threshold
 
         return best_weights, best_score

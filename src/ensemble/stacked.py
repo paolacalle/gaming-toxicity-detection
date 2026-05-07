@@ -1,85 +1,101 @@
 import numpy as np
-from sklearn.base import clone
-from sklearn.model_selection import StratifiedKFold
+from sklearn.linear_model import LogisticRegression
 
-# out of fold predictions for meta-model training
-# base models are retrained on the full dataset after meta-model training
-# meaning the meta-model is always trained on predictions from base models that did not
-# train on the same validation fold, ensuring no data leakage
 
 class Stacked:
-    def __init__(self, base_models, meta_model, n_folds=5, random_state=42):
+    def __init__(
+        self,
+        base_models,
+        meta_model=None,
+        use_confidence=True,
+    ):
+        """
+        Stacked ensemble using already-fitted model collections.
+
+        Each base model collection must implement:
+            predict_individual(X) -> dict[str, np.ndarray]
+            predict_confidence(X) -> dict[str, np.ndarray]
+
+        The base models are NOT refit. They only generate meta-features.
+        Then a logistic regression model is fit on those features.
+        """
         if not base_models:
-            raise ValueError("At least one base model is required.")
+            raise ValueError("At least one base model collection is required.")
 
         self.base_models = base_models
-        self.meta_model = meta_model
-        self.n_folds = n_folds
-        self.random_state = random_state
+        self.use_confidence = use_confidence
 
-        self.fitted_base_models = []
+        self.meta_model = meta_model or LogisticRegression(
+            max_iter=1000,
+            class_weight="balanced",
+        )
+
         self.fitted_meta_model = None
+        self.feature_names_ = None
 
     def fit(self, X, y):
         """
-        Fits a stacked ensemble using out-of-fold predictions.
-
-        The meta-model is trained on predictions from base models that did not
-        train on the same validation fold.
+        Create meta-features from base model outputs, then fit logistic regression.
         """
-        skf = StratifiedKFold(
-            n_splits=self.n_folds,
-            shuffle=True,
-            random_state=self.random_state
-        )
-
-        X = np.asarray(X)
+        X_meta = self._create_meta_features(X)
         y = np.asarray(y)
 
-        meta_features = np.zeros((len(X), len(self.base_models)))
-
-        for model_idx, model in enumerate(self.base_models):
-            for train_idx, val_idx in skf.split(X, y):
-                model_clone = clone(model)
-
-                model_clone.fit(X[train_idx], y[train_idx])
-
-                meta_features[val_idx, model_idx] = model_clone.predict(X[val_idx])
-
-        self.fitted_meta_model = clone(self.meta_model)
-        self.fitted_meta_model.fit(meta_features, y)
-
-        self.fitted_base_models = []
-
-        for model in self.base_models:
-            model_clone = clone(model)
-            model_clone.fit(X, y)
-            self.fitted_base_models.append(model_clone)
+        self.fitted_meta_model = self.meta_model
+        self.fitted_meta_model.fit(X_meta, y)
 
         return self
 
     def predict(self, X):
         """
-        Predicts using the stacked ensemble.
+        Predict using the logistic regression meta-model.
         """
         if self.fitted_meta_model is None:
-            raise ValueError("The stacked model must be fitted before prediction.")
+            raise ValueError("Stacked model has not been fitted yet.")
 
-        meta_features = self._create_meta_features(X)
+        X_meta = self._create_meta_features(X)
 
-        return self.fitted_meta_model.predict(meta_features)
+        return self.fitted_meta_model.predict(X_meta)
+
+    def predict_proba(self, X):
+        """
+        Return probabilities from the logistic regression meta-model.
+        """
+        if self.fitted_meta_model is None:
+            raise ValueError("Stacked model has not been fitted yet.")
+
+        X_meta = self._create_meta_features(X)
+
+        return self.fitted_meta_model.predict_proba(X_meta)
 
     def _create_meta_features(self, X):
         """
-        Creates meta-features using the fitted base models.
+        Build one feature column per base model.
+
+        If use_confidence=True:
+            feature = toxic confidence score from each model.
+
+        If use_confidence=False:
+            feature = hard prediction from each model.
         """
-        if not self.fitted_base_models:
-            raise ValueError("Base models must be fitted before creating meta-features.")
+        meta_feature_dict = {}
 
-        meta_features = []
+        for collection in self.base_models:
+            if self.use_confidence:
+                outputs = collection.predict_confidence(X)
+            else:
+                outputs = collection.predict_individual(X)
 
-        for model in self.fitted_base_models:
-            predictions = model.predict(X)
-            meta_features.append(predictions)
+            for model_name, values in outputs.items():
+                if model_name in meta_feature_dict:
+                    raise ValueError(
+                        f"Duplicate model name found: {model_name}. "
+                        "Model names must be unique across collections."
+                    )
 
-        return np.column_stack(meta_features)
+                meta_feature_dict[model_name] = np.asarray(values)
+
+        self.feature_names_ = list(meta_feature_dict.keys())
+
+        return np.column_stack(
+            [meta_feature_dict[name] for name in self.feature_names_]
+        )
