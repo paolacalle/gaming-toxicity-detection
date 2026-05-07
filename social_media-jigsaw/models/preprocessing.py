@@ -1,15 +1,19 @@
 """
 preprocessing.py — shared text cleaning pipeline for toxicity detection.
 
-Two variants:
-  - clean_text(text)              : standard cleaning (lowercase, URLs, HTML, punct)
-  - clean_text(text, slang=True)  : additionally normalises slang using the
-                                    MLBtrio/genz-slang-dataset from HuggingFace
+Three variants:
+  - preprocess_df(series)                        : standard cleaning (lowercase, URLs, HTML, punct)
+  - preprocess_df(series, slang=True)            : additionally normalises slang using the
+                                                   MLBtrio/genz-slang-dataset from HuggingFace
+  - preprocess_df(series, use_tokenizer=True)    : URL/HTML removal → TweetTokenizer pipeline
+                                                   (ALLCAPS tagging, game stopwords, censored-word repair)
+  - preprocess_df(series, slang=True,
+                  use_tokenizer=True)            : slang normalisation then TweetTokenizer
 
 Usage:
     from preprocessing import clean_text, preprocess_df
-    train['clean'] = preprocess_df(train['comment_text'])
-    train['clean_slang'] = preprocess_df(train['comment_text'], slang=True)
+    train['clean']     = preprocess_df(train['comment_text'])
+    train['tokenized'] = preprocess_df(train['comment_text'], use_tokenizer=True)
 """
 
 import re
@@ -183,19 +187,53 @@ def clean_text(text: str, slang: bool = False) -> str:
     return text
 
 
-def preprocess_df(series: pd.Series, slang: bool = False) -> pd.Series:
+def preprocess_df(series: pd.Series, slang: bool = False, use_tokenizer: bool = False) -> pd.Series:
     """
-    Apply clean_text to a pandas Series.
+    Apply cleaning to a pandas Series.
 
     Parameters
     ----------
-    series : pd.Series of raw comment strings
-    slang  : passed through to clean_text
+    series        : pd.Series of raw comment strings
+    slang         : expand slang terms using MLBtrio/genz-slang-dataset
+    use_tokenizer : if True, use TweetTokenizer pipeline from tokenizer.py instead of
+                    the regex-only clean_text path.  URLs and HTML are stripped first,
+                    then tokenizer.tokenize() handles censored words (f**k→fk),
+                    ALLCAPS tagging, and game/generic stopword removal.
+                    Returns space-joined tokens, compatible with TF-IDF.
 
     Returns
     -------
     pd.Series of cleaned strings
     """
+    if use_tokenizer:
+        import sys
+        from pathlib import Path
+        _src = str(Path(__file__).resolve().parents[2] / "src")
+        if _src not in sys.path:
+            sys.path.insert(0, _src)
+        from tokenizer import tokenize as _tokenize
+
+        def _pipe(text: str) -> str:
+            if not isinstance(text, str):
+                return ""
+            # Strip URLs, HTML and newlines before tokenizing so the
+            # TweetTokenizer doesn't see raw markup or link noise.
+            text = _RE_URL.sub(' ', text)
+            text = _RE_HTML.sub(' ', text)
+            text = _RE_NEWLINE.sub(' ', text)
+            text = _RE_SPACES.sub(' ', text).strip()
+            if slang:
+                # Slang normalisation needs lowercased, punct-free text
+                text = _RE_REPEATED.sub(r'\1\1', text)
+                text = _RE_PUNCT.sub(' ', text)
+                text = _RE_STRAY_APOS.sub(' ', text)
+                text = text.lower().strip()
+                text = _apply_slang_normalization(text)
+                text = _RE_SPACES.sub(' ', text).strip()
+            return ' '.join(_tokenize(text))
+
+        return series.apply(_pipe)
+
     return series.apply(lambda x: clean_text(x, slang=slang))
 
 
