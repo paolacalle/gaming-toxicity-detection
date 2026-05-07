@@ -10,17 +10,22 @@ class WeightedConfidenceMajority:
         self.model_names = None
         self.weights = None
         self.weight_history = []
-        self.threshold = 0.5
-
-        # Binary setting by design because predict_confidence returns toxic score
-        self.classes_ = np.array([0, 1])
+        self.threshold = None
+        self.classes_ = None
 
     def _get_confidences_dict(self, X):
         """
-        Collect toxic-class confidence scores from all model collections.
+        Collect confidence outputs from all model collections.
 
-        Each collection must implement:
-            predict_confidence(X) -> dict[str, np.ndarray]
+        Each collection must return:
+            model_name -> confidence array
+
+        Binary allowed shapes:
+            (n_samples,)      toxic score only
+            (n_samples, 2)    class probabilities
+
+        Multiclass required shape:
+            (n_samples, n_classes)
         """
         confidences_dict = {}
 
@@ -31,31 +36,58 @@ class WeightedConfidenceMajority:
                 if model_name in confidences_dict:
                     raise ValueError(f"Duplicate model name found: {model_name}")
 
-                confidences_dict[model_name] = np.asarray(scores, dtype=float)
+                scores = np.asarray(scores, dtype=float)
+
+                # Binary toxic-score vector -> convert to 2-column probabilities
+                if scores.ndim == 1:
+                    scores = np.column_stack([1 - scores, scores])
+
+                if scores.ndim != 2:
+                    raise ValueError(
+                        f"{model_name} confidence output must be 1D or 2D, "
+                        f"got shape {scores.shape}."
+                    )
+
+                confidences_dict[model_name] = scores
 
         return confidences_dict
 
-    def _get_confidence_matrix(self, X):
+    def _get_confidence_tensor(self, X):
         """
         Returns
         -------
         model_names : list[str]
-        confidence_matrix : np.ndarray
-            Shape: (n_samples, n_models)
+
+        confidence_tensor : np.ndarray
+            Shape: (n_models, n_samples, n_classes)
         """
         confidences_dict = self._get_confidences_dict(X)
 
         model_names = list(confidences_dict.keys())
-        confidence_matrix = np.vstack(
-            [confidences_dict[name] for name in model_names]
-        ).T
+        matrices = [confidences_dict[name] for name in model_names]
 
-        return model_names, confidence_matrix
+        n_samples = matrices[0].shape[0]
+        n_classes = matrices[0].shape[1]
+
+        for name, matrix in zip(model_names, matrices):
+            if matrix.shape[0] != n_samples:
+                raise ValueError(
+                    f"All models must predict the same number of samples. "
+                    f"Expected {n_samples}, but {name} has {matrix.shape[0]}."
+                )
+
+            if matrix.shape[1] != n_classes:
+                raise ValueError(
+                    f"All models must output the same number of classes. "
+                    f"Expected {n_classes}, but {name} has {matrix.shape[1]}."
+                )
+
+        self.model_names = model_names
+        self.classes_ = np.arange(n_classes)
+
+        return model_names, np.stack(matrices, axis=0)
 
     def _ensure_weights(self, model_names, weights=None):
-        """
-        Validate/initialize weights.
-        """
         if weights is None:
             if self.weights is None or len(self.weights) != len(model_names):
                 self.weights = np.ones(len(model_names)) / len(model_names)
@@ -65,7 +97,10 @@ class WeightedConfidenceMajority:
         weights = np.asarray(weights, dtype=float)
 
         if len(weights) != len(model_names):
-            raise ValueError("Number of weights must match number of models.")
+            raise ValueError(
+                f"Number of weights must match number of models. "
+                f"Got {len(weights)} weights for {len(model_names)} models."
+            )
 
         if np.any(weights < 0):
             raise ValueError("Weights must be nonnegative.")
@@ -81,40 +116,44 @@ class WeightedConfidenceMajority:
     def predict(self, X):
         """
         Unweighted confidence averaging.
-
-        Each model contributes equally.
         """
-        model_names, confidence_matrix = self._get_confidence_matrix(X)
+        model_names, confidence_tensor = self._get_confidence_tensor(X)
 
-        avg_scores = confidence_matrix.mean(axis=1)
+        avg_probas = confidence_tensor.mean(axis=0)
+        return self.classes_[avg_probas.argmax(axis=1)]
 
-        return (avg_scores >= self.threshold).astype(int)
-
-    def predict_weighted(self, X, weights=None, threshold=None):
+    def predict_weighted(self, X, weights=None, threshold=None, uncertain_label=-1):
         """
         Weighted confidence averaging.
 
-        Each model's toxic confidence score is weighted before averaging.
-        """
-        if threshold is None:
-            threshold = self.threshold
+        Multiclass:
+            weighted probabilities -> argmax class
+            if threshold is provided, only accept prediction when max confidence >= threshold
 
-        model_names, confidence_matrix = self._get_confidence_matrix(X)
+        Binary:
+            same logic by default, unless you specifically want class-1 thresholding.
+        """
+        model_names, confidence_tensor = self._get_confidence_tensor(X)
         weights = self._ensure_weights(model_names, weights)
 
-        weighted_scores = confidence_matrix @ weights
+        weighted_probas = np.tensordot(
+            weights,
+            confidence_tensor,
+            axes=(0, 0)
+        )
+        # shape: (n_samples, n_classes)
 
-        return (weighted_scores >= threshold).astype(int)
+        predicted_labels = self.classes_[weighted_probas.argmax(axis=1)]
 
-    def predict_scores(self, X, weights=None):
-        """
-        Return weighted confidence scores without thresholding.
-        Useful for threshold tuning.
-        """
-        model_names, confidence_matrix = self._get_confidence_matrix(X)
-        weights = self._ensure_weights(model_names, weights)
+        if threshold is not None:
+            max_confidence = weighted_probas.max(axis=1)
+            predicted_labels = np.where(
+                max_confidence >= threshold,
+                predicted_labels,
+                uncertain_label
+            )
 
-        return confidence_matrix @ weights
+        return predicted_labels
 
     def fit_weights_random_search(
         self,
@@ -124,46 +163,71 @@ class WeightedConfidenceMajority:
         n_trials=1000,
         random_state=42,
         thresholds=None,
+        uncertain_label=-1,
     ):
         """
-        Finds ensemble weights by randomly sampling weight combinations
-        and keeping the weights with the best validation score.
+        Random-search weights for confidence averaging.
 
-        Also optionally tunes threshold.
+        For both binary and multiclass:
+            1. Compute weighted class probabilities.
+            2. Predict argmax class.
+            3. If threshold is provided, only accept the predicted label when
+            max class confidence >= threshold.
+            4. Otherwise return uncertain_label.
 
-        score_func should take:
-            score_func(y_true, y_pred)
+        score_func should handle uncertain_label if thresholds are used.
         """
         rng = np.random.default_rng(random_state)
 
-        model_names, confidence_matrix = self._get_confidence_matrix(X_val)
-        n_models = len(model_names)
+        model_names, confidence_tensor = self._get_confidence_tensor(X_val)
 
-        if thresholds is None:
-            thresholds = [self.threshold]
+        n_models = len(model_names)
+        y_val = np.asarray(y_val)
 
         best_score = -np.inf
         best_weights = np.ones(n_models) / n_models
-        best_threshold = self.threshold
+        best_threshold = None
 
         self.weight_history = []
 
+        if thresholds is None:
+            thresholds = [None]
+
         for _ in range(n_trials):
+            # sample from simplex to get nonnegative weights that sum to 1
             weights = rng.dirichlet(np.ones(n_models))
-            weighted_scores = confidence_matrix @ weights
+
+            weighted_probas = np.tensordot(
+                weights,
+                confidence_tensor,
+                axes=(0, 0)
+            )
+            # shape: (n_samples, n_classes)
+
+            predicted_labels = self.classes_[weighted_probas.argmax(axis=1)]
+            max_confidence = weighted_probas.max(axis=1)
 
             for threshold in thresholds:
-                predictions = (weighted_scores >= threshold).astype(int)
+                if threshold is not None:
+                    predictions = np.where(
+                        max_confidence >= threshold,
+                        predicted_labels,
+                        uncertain_label
+                    )
+                else:
+                    predictions = predicted_labels
 
                 score = score_func(y_val, predictions)
+                coverage = (predictions != uncertain_label).mean()
+                accuracy = (predictions == y_val).mean()
 
-                self.weight_history.append(
-                    {
-                        "weights": weights.copy(),
-                        "threshold": threshold,
-                        "score": score,
-                    }
-                )
+                self.weight_history.append({
+                    "weights": weights.copy(),
+                    "threshold": threshold,
+                    "score": score,
+                    "coverage": coverage,
+                    "acc": accuracy,
+                })
 
                 if score > best_score:
                     best_score = score

@@ -41,14 +41,14 @@ class Ensemble:
         y_val,
         score_func,
         n_trials=1000,
-        random_state=42,
+        random_state=42
     ):
         return self.weighted_majority.fit_weights_random_search(
             X_val=X_val,
             y_val=y_val,
             score_func=score_func,
             n_trials=n_trials,
-            random_state=random_state,
+            random_state=random_state
         )
 
     def fit_weighted_confidence_majority(
@@ -72,6 +72,9 @@ class Ensemble:
             random_state=random_state,
             thresholds=thresholds,
         )
+
+    def predict_weighted_majority(self, X, weights=None):
+        return self.weighted_majority.predict(X, weights)
 
     def predict_weighted_confidence_majority(
         self,

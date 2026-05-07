@@ -65,6 +65,21 @@ class GamingTextPreprocessor:
         return self.tfidf_vectorizer.transform(
             df[text_column].fillna("").astype(str)
         )
+        
+    def transform_series(
+        self,
+        text_series: pd.Series,
+    ) -> spmatrix:
+        """
+        Transform a pandas Series of raw text into TF-IDF features.
+
+        Kept as an alias for compatibility with your current code.
+        """
+        check_is_fitted(self.tfidf_vectorizer)
+
+        return self.tfidf_vectorizer.transform(
+            text_series.fillna("").astype(str)
+        )
 
     def fit_transform(
         self,
