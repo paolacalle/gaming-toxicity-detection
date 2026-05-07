@@ -27,6 +27,7 @@ class WeightedConfidenceMajority:
         Multiclass required shape:
             (n_samples, n_classes)
         """
+        print("Collecting confidence outputs from models...")
         confidences_dict = {}
 
         for collection in self.model_collections:
@@ -49,6 +50,8 @@ class WeightedConfidenceMajority:
                     )
 
                 confidences_dict[model_name] = scores
+                
+        print("Total models in ensemble:", len(confidences_dict))
 
         return confidences_dict
 
@@ -61,6 +64,7 @@ class WeightedConfidenceMajority:
         confidence_tensor : np.ndarray
             Shape: (n_models, n_samples, n_classes)
         """
+        print("Constructing confidence tensor...")
         confidences_dict = self._get_confidences_dict(X)
 
         model_names = list(confidences_dict.keys())
@@ -68,6 +72,8 @@ class WeightedConfidenceMajority:
 
         n_samples = matrices[0].shape[0]
         n_classes = matrices[0].shape[1]
+        
+        print(f"Expected confidence shape: (n_samples={n_samples}, n_classes={n_classes})")
 
         for name, matrix in zip(model_names, matrices):
             if matrix.shape[0] != n_samples:
@@ -142,8 +148,9 @@ class WeightedConfidenceMajority:
             axes=(0, 0)
         )
         # shape: (n_samples, n_classes)
-
         predicted_labels = self.classes_[weighted_probas.argmax(axis=1)]
+        
+        print(f"Predicted labels shape: {predicted_labels.shape}")
 
         if threshold is not None:
             max_confidence = weighted_probas.max(axis=1)
@@ -179,9 +186,12 @@ class WeightedConfidenceMajority:
         """
         rng = np.random.default_rng(random_state)
 
+        print("Collecting confidence outputs from models...")
         model_names, confidence_tensor = self._get_confidence_tensor(X_val)
 
         n_models = len(model_names)
+        
+        print("Starting random search for n models:", n_models)
         y_val = np.asarray(y_val)
 
         best_score = -np.inf
@@ -202,6 +212,10 @@ class WeightedConfidenceMajority:
                 confidence_tensor,
                 axes=(0, 0)
             )
+            
+            print(f"Trial weights: {weights.shape}")
+            print(f"Weighted probabilities shape: {weighted_probas.shape}")
+            
             # shape: (n_samples, n_classes)
 
             predicted_labels = self.classes_[weighted_probas.argmax(axis=1)]

@@ -79,68 +79,93 @@ class SocialMediaModelCollection(BaseModelCollection):
     def _clean_model_name(self, model_path: Path) -> str:
         return model_path.stem
 
-    def _multioutput_to_single_label(self, y_pred: np.ndarray) -> np.ndarray:
+    def _multioutput_to_single_label(self, y_pred):
         """
-        Convert multi-output binary predictions into a single class label.
+        Convert multi-output binary predictions into one 3-class label.
 
-        Example for 2 output columns:
-            [0, 0] -> 0
-            [1, 0] -> 1
-            [0, 1] -> 2
-            [1, 1] -> 2  # chooses highest active class
-
-        This assumes columns represent increasing toxicity levels.
+        Assumes:
+            no active labels -> 0 non-toxic
+            lower active labels -> 1 mild
+            higher active labels -> 2 severe
         """
         y_pred = np.asarray(y_pred)
 
         if y_pred.ndim == 1:
-            return y_pred
+            return y_pred.astype(int)
+
+        if y_pred.ndim != 2:
+            raise ValueError(f"Expected 1D or 2D predictions, got shape {y_pred.shape}")
 
         single_labels = np.zeros(y_pred.shape[0], dtype=int)
 
-        for row_idx, row in enumerate(y_pred):
+        for i, row in enumerate(y_pred):
             active = np.where(row == 1)[0]
 
             if len(active) == 0:
-                single_labels[row_idx] = 0
+                single_labels[i] = 0
             else:
-                single_labels[row_idx] = active.max() + 1
+                highest_active = active.max()
+
+                # For 6 original toxicity levels:
+                # labels 1-2 -> mild, labels 3+ -> severe
+                # Since active indices are zero-based:
+                # active 0/1 -> class 1
+                # active 2+  -> class 2
+                if highest_active <= 1:
+                    single_labels[i] = 1
+                else:
+                    single_labels[i] = 2
 
         return single_labels
 
-    def _multioutput_proba_to_class_confidence(self, probas) -> np.ndarray:
+    def _multioutput_proba_to_class_confidence(self, probas):
         """
-        Convert MultiOutputClassifier predict_proba output into class-confidence matrix.
+        Convert MultiOutputClassifier predict_proba output into 3-class confidence.
 
-        MultiOutputClassifier returns:
-            list[array], where each array has shape (n_samples, 2)
+        Returns shape:
+            (n_samples, 3)
 
-        For 2 output labels, returns:
-            shape (n_samples, 3)
-            columns = [class_0_conf, class_1_conf, class_2_conf]
-
-        class_0_conf is estimated as 1 - max positive-label confidence.
+        Columns:
+            0 = non-toxic
+            1 = mild toxicity
+            2 = severe toxicity
         """
         if not isinstance(probas, list):
-            return np.asarray(probas)
+            probas = np.asarray(probas)
+
+            if probas.ndim == 2 and probas.shape[1] == 3:
+                return probas
+
+            if probas.ndim == 2 and probas.shape[1] == 2:
+                return probas
+
+            raise ValueError(f"Unexpected proba shape: {probas.shape}")
 
         positive_probs = np.column_stack([
             output_proba[:, 1]
             for output_proba in probas
         ])
-        # shape: (n_samples, n_outputs)
 
-        none_prob = 1 - positive_probs.max(axis=1)
+        non_toxic_conf = 1 - positive_probs.max(axis=1)
+
+        if positive_probs.shape[1] >= 3:
+            mild_conf = positive_probs[:, :2].max(axis=1)
+            severe_conf = positive_probs[:, 2:].max(axis=1)
+        elif positive_probs.shape[1] == 2:
+            mild_conf = positive_probs[:, 0]
+            severe_conf = positive_probs[:, 1]
+        else:
+            mild_conf = positive_probs[:, 0]
+            severe_conf = np.zeros_like(mild_conf)
 
         class_conf = np.column_stack([
-            none_prob,
-            positive_probs,
+            non_toxic_conf,
+            mild_conf,
+            severe_conf,
         ])
 
-        # Avoid negative values just in case probabilities are weird
         class_conf = np.clip(class_conf, 0, 1)
 
-        # Normalize rows so they behave like class probabilities
         row_sums = class_conf.sum(axis=1, keepdims=True)
         row_sums[row_sums == 0] = 1
 
@@ -213,12 +238,13 @@ class SocialMediaModelCollection(BaseModelCollection):
             returns class-confidence matrix:
                 shape (n_samples, n_classes)
 
-        Example for two binary outputs:
+        For this project:
             columns = [non-toxic, mild, severe]
         """
         X_nb, X_scaled = self._get_features(X)
 
         confidences = {}
+        n_classes = 3
 
         for model_path, model in self.classifiers.items():
             model_name = self._clean_model_name(model_path)
@@ -235,14 +261,36 @@ class SocialMediaModelCollection(BaseModelCollection):
 
             else:
                 y_pred = model.predict(X_use)
+                y_pred = np.asarray(y_pred)
 
-                if self.output_mode == "single_label":
+                # If model outputs multi-label/multi-output predictions,
+                # convert them into one 3-class label first.
+                if y_pred.ndim == 2:
                     y_pred = self._multioutput_to_single_label(y_pred)
 
-                # fallback: one-hot hard confidence
-                n_classes = int(np.max(y_pred)) + 1
+                elif y_pred.ndim != 1:
+                    raise ValueError(
+                        f"{model_name} predict output must be 1D or 2D, "
+                        f"got shape {y_pred.shape}"
+                    )
+
+                y_pred = y_pred.astype(int)
+
                 confs = np.zeros((len(y_pred), n_classes))
                 confs[np.arange(len(y_pred)), y_pred] = 1.0
+
+            confs = np.asarray(confs, dtype=float)
+
+            if confs.ndim != 2:
+                raise ValueError(
+                    f"{model_name} confidence output must be 2D, got shape {confs.shape}"
+                )
+
+            if confs.shape[1] != n_classes:
+                raise ValueError(
+                    f"{model_name} must output {n_classes} classes, "
+                    f"got shape {confs.shape}"
+                )
 
             confidences[model_name] = confs
 

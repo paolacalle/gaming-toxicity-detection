@@ -11,6 +11,42 @@ class WeightedMajority:
         self.weights = None
         self.weight_history = []
 
+    def _to_single_label(self, preds):
+        """
+        Convert predictions to 1D class labels.
+
+        Handles:
+        - already single-label predictions: shape (n_samples,)
+        - multi-output binary predictions: shape (n_samples, n_outputs)
+
+        For multi-output:
+            [0, 0] -> 0
+            [1, 0] -> 1
+            [0, 1] -> 2
+            [1, 1] -> highest active label + 1
+        """
+        preds = np.asarray(preds)
+
+        if preds.ndim == 1:
+            return preds
+
+        if preds.ndim != 2:
+            raise ValueError(
+                f"Predictions must be 1D or 2D. Got shape {preds.shape}."
+            )
+
+        single_labels = np.zeros(preds.shape[0], dtype=int)
+
+        for i, row in enumerate(preds):
+            active = np.where(row == 1)[0]
+
+            if len(active) == 0:
+                single_labels[i] = 0
+            else:
+                single_labels[i] = active.max() + 1
+
+        return single_labels
+
     def _get_predictions_dict(self, X):
         """
         Collect predictions from all model collections.
@@ -24,7 +60,9 @@ class WeightedMajority:
                 if model_name in predictions_dict:
                     raise ValueError(f"Duplicate model name found: {model_name}")
 
-                predictions_dict[model_name] = np.asarray(preds)
+                preds = self._to_single_label(preds)
+
+                predictions_dict[model_name] = preds
 
         return predictions_dict
 
@@ -41,7 +79,10 @@ class WeightedMajority:
         weights = np.asarray(weights, dtype=float)
 
         if len(weights) != len(model_names):
-            raise ValueError("Number of weights must match number of models.")
+            raise ValueError(
+                f"Number of weights must match number of models. "
+                f"Got {len(weights)} weights for {len(model_names)} models."
+            )
 
         if np.any(weights < 0):
             raise ValueError("Weights must be nonnegative.")
@@ -53,6 +94,26 @@ class WeightedMajority:
             weights = weights / weights.sum()
 
         return weights
+
+    def _weighted_vote_from_matrix(self, predictions_matrix, weights):
+        """
+        Compute weighted majority vote.
+
+        predictions_matrix shape:
+            (n_samples, n_models)
+        """
+        classes = np.unique(predictions_matrix)
+        n_samples = predictions_matrix.shape[0]
+
+        weighted_votes = np.zeros((n_samples, len(classes)))
+
+        for model_idx, weight in enumerate(weights):
+            for class_idx, cls in enumerate(classes):
+                weighted_votes[:, class_idx] += weight * (
+                    predictions_matrix[:, model_idx] == cls
+                )
+
+        return classes[weighted_votes.argmax(axis=1)]
 
     def predict(self, X, weights=None):
         """
@@ -69,21 +130,12 @@ class WeightedMajority:
 
         weights = self._ensure_weights(model_names, weights)
 
-        predictions = np.vstack([predictions_dict[name] for name in model_names])
-        # shape: (n_models, n_samples)
+        # shape: (n_samples, n_models)
+        predictions_matrix = np.column_stack(
+            [predictions_dict[name] for name in model_names]
+        )
 
-        classes = np.unique(predictions)
-        n_samples = predictions.shape[1]
-
-        weighted_votes = np.zeros((n_samples, len(classes)))
-
-        for model_idx, weight in enumerate(weights):
-            for class_idx, cls in enumerate(classes):
-                weighted_votes[:, class_idx] += weight * (
-                    predictions[model_idx] == cls
-                )
-
-        return classes[weighted_votes.argmax(axis=1)]
+        return self._weighted_vote_from_matrix(predictions_matrix, weights)
 
     def fit_weights_random_search(
         self,
@@ -100,15 +152,16 @@ class WeightedMajority:
         rng = np.random.default_rng(random_state)
 
         predictions_dict = self._get_predictions_dict(X_val)
+
         model_names = list(predictions_dict.keys())
         self.model_names = model_names
 
-        predictions_matrix = np.vstack(
+        # shape: (n_samples, n_models)
+        predictions_matrix = np.column_stack(
             [predictions_dict[name] for name in model_names]
         )
-        classes = np.unique(predictions_matrix)
+
         n_models = len(model_names)
-        n_samples = predictions_matrix.shape[1]
 
         best_score = -np.inf
         best_weights = np.ones(n_models) / n_models
@@ -118,15 +171,10 @@ class WeightedMajority:
         for _ in range(n_trials):
             weights = rng.dirichlet(np.ones(n_models))
 
-            weighted_votes = np.zeros((n_samples, len(classes)))
-
-            for model_idx, weight in enumerate(weights):
-                for class_idx, cls in enumerate(classes):
-                    weighted_votes[:, class_idx] += weight * (
-                        predictions_matrix[model_idx] == cls
-                    )
-
-            predictions = classes[weighted_votes.argmax(axis=1)]
+            predictions = self._weighted_vote_from_matrix(
+                predictions_matrix,
+                weights,
+            )
 
             score = score_func(y_val, predictions)
 
