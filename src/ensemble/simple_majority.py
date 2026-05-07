@@ -15,6 +15,7 @@ class SimpleMajority:
         Each model casts one vote.
         The class with the most votes is selected.
         """
+        print("Predicting with SimpleMajority...")
         predictions = np.array([model.predict(X) for model in self.models])
 
         majority_votes = []

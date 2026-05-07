@@ -42,7 +42,7 @@ class SocialMediaClassifier:
         """
         X_nb, X_scaled = self._get_features(X)
 
-        predictions = {}
+        predictions = {} # model_name : predicted labels array
 
         for model_path, clf in self.classifiers.items():
             model_name = model_path.split("/")[-1]
@@ -66,7 +66,7 @@ class SocialMediaClassifier:
 
         X_nb, X_scaled = self._get_features(X)
 
-        confidences = {}
+        confidences = {} # model_name : toxic confidence scores array
 
         for model_path, clf in self.classifiers.items():
             model_name = model_path.split("/")[-1]
