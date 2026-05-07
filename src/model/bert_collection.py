@@ -155,24 +155,30 @@ class BertToxicityModelCollection(BaseModelCollection):
 
     def predict_confidence(self, texts) -> dict[str, np.ndarray]:
         """
-        For binary models, return probability of toxic class = class 1.
+        Return class probability/confidence scores for each model.
+
+        For binary models:
+            returns shape (n_samples, 2)
+
+        For multiclass models:
+            returns shape (n_samples, n_classes)
 
         Returns
         -------
         dict[str, np.ndarray]
-            model_name -> toxic confidence scores of shape (n_samples,)
+            model_name -> probability matrix of shape (n_samples, n_classes)
         """
-        probs = self.predict_proba(texts) # model_name : (n_samples, n_classes) probabilities
+        probs = self.predict_proba(texts)
 
-        confidences = {} # model_name : toxic confidence scores array
+        confidences = {}
 
         for model_name, model_probs in probs.items():
-            if model_probs.shape[1] != 2:
+            if model_probs.ndim != 2:
                 raise ValueError(
-                    f"predict_confidence only works for binary models. "
-                    f"{model_name} has {model_probs.shape[1]} classes."
+                    f"{model_name} predict_proba should return a 2D array, "
+                    f"got shape {model_probs.shape}."
                 )
 
-            confidences[model_name] = model_probs[:, 1]
+            confidences[model_name] = model_probs
 
         return confidences
