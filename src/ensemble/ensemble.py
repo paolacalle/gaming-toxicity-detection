@@ -73,6 +73,30 @@ class Ensemble:
             thresholds=thresholds,
         )
 
+    def fit_weighted_confidence_majority_optuna_cv(
+        self,
+        X,
+        y,
+        score_func,
+        cv=5,
+        n_trials=100,
+        random_state=42,
+        thresholds=None,
+    ):
+        self.weighted_confidence_majority = wcm.WeightedConfidenceMajority(
+            self.model_collections
+        )
+
+        return self.weighted_confidence_majority.fit_weights_optuna_cv(
+            X=X,
+            y=y,
+            score_func=score_func,
+            cv=cv,
+            n_trials=n_trials,
+            random_state=random_state,
+            thresholds=thresholds,
+        )
+
     def predict_weighted_confidence_majority(
         self,
         X,

@@ -1,4 +1,6 @@
 import numpy as np
+import optuna
+from sklearn.model_selection import StratifiedKFold
 
 
 class WeightedConfidenceMajority:
@@ -286,6 +288,112 @@ class WeightedConfidenceMajority:
         # which model got which weight in the best combination
         best_weights_dict = dict(zip(model_names, best_weights))
         print("Best weights:", best_weights_dict)
+
+        self.weights = best_weights
+        self.threshold = best_threshold
+
+        return best_weights, best_threshold, best_score, model_names
+
+    def fit_weights_optuna_cv(
+        self,
+        X,
+        y,
+        score_func,
+        cv=5,
+        n_trials=100,
+        random_state=42,
+        thresholds=None,
+        uncertain_label=-1,
+    ):
+        """
+        Fit ensemble weights with Optuna using stratified cross-validation.
+
+        Tunes one nonnegative weight per model and, optionally, a prediction
+        threshold. Weights are normalized to sum to 1 before scoring.
+        """
+        print("Collecting confidence outputs from models...")
+        model_names, confidence_tensor = self._get_confidence_tensor(X)
+        y = np.asarray(y)
+
+        if thresholds is None:
+            thresholds = [None]
+
+        n_models = len(model_names)
+        splitter = StratifiedKFold(
+            n_splits=cv,
+            shuffle=True,
+            random_state=random_state,
+        )
+
+        self.weight_history = []
+
+        def objective(trial):
+            raw_weights = np.array([
+                trial.suggest_float(f"weight_{idx}", 1e-8, 1.0)
+                for idx in range(n_models)
+            ])
+            weights = raw_weights / raw_weights.sum()
+
+            if thresholds == [None]:
+                threshold = None
+            else:
+                threshold = trial.suggest_categorical("threshold", thresholds)
+
+            fold_scores = []
+            fold_coverages = []
+            fold_accuracies = []
+
+            for _, val_idx in splitter.split(np.zeros(len(y)), y):
+                fold_tensor = confidence_tensor[:, val_idx, :]
+                y_val = y[val_idx]
+
+                weighted_probas = np.tensordot(
+                    weights,
+                    fold_tensor,
+                    axes=(0, 0),
+                )
+                predicted_labels = self.classes_[weighted_probas.argmax(axis=1)]
+
+                if threshold is not None:
+                    max_confidence = weighted_probas.max(axis=1)
+                    predictions = np.where(
+                        max_confidence >= threshold,
+                        predicted_labels,
+                        uncertain_label,
+                    )
+                else:
+                    predictions = predicted_labels
+
+                fold_scores.append(score_func(y_val, predictions))
+                fold_coverages.append((predictions != uncertain_label).mean())
+                fold_accuracies.append((predictions == y_val).mean())
+
+            mean_score = float(np.mean(fold_scores))
+
+            self.weight_history.append({
+                "weights": weights.copy(),
+                "threshold": threshold,
+                "score": mean_score,
+                "coverage": float(np.mean(fold_coverages)),
+                "acc": float(np.mean(fold_accuracies)),
+            })
+
+            return mean_score
+
+        sampler = optuna.samplers.TPESampler(seed=random_state)
+        study = optuna.create_study(direction="maximize", sampler=sampler)
+        study.optimize(objective, n_trials=n_trials, show_progress_bar=False)
+
+        best_weights = np.array([
+            study.best_params[f"weight_{idx}"]
+            for idx in range(n_models)
+        ], dtype=float)
+        best_weights = best_weights / best_weights.sum()
+        best_threshold = study.best_params.get("threshold")
+        best_score = study.best_value
+
+        best_weights_dict = dict(zip(model_names, best_weights))
+        print("Best Optuna weights:", best_weights_dict)
 
         self.weights = best_weights
         self.threshold = best_threshold
